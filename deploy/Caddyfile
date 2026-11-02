@@ -1,0 +1,11 @@
+{$SITE_HOST:godlyhomes.com} {
+  encode zstd gzip
+  request_body {
+    max_size 513MB
+  }
+  reverse_proxy app:3001
+}
+
+www.{$SITE_HOST:godlyhomes.com} {
+  redir https://{$SITE_HOST:godlyhomes.com}{uri} permanent
+}

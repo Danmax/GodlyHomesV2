@@ -1,0 +1,73 @@
+name: godly-homes
+
+x-application: &application
+  build: .
+  image: godly-homes:local
+  restart: unless-stopped
+  init: true
+  env_file: .env
+  environment:
+    NODE_ENV: production
+    PORT: 3001
+    DB_HOST: mysql
+    DB_PORT: 3306
+    MEDIA_DIR: /data/media
+    FFMPEG_PATH: ffmpeg
+    FFPROBE_PATH: ffprobe
+    TRUST_PROXY: 1
+  volumes:
+    - media:/data/media
+  depends_on:
+    mysql:
+      condition: service_healthy
+
+services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${DB_NAME:?Set DB_NAME in .env}
+      MYSQL_USER: ${DB_USER:?Set DB_USER in .env}
+      MYSQL_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
+    volumes:
+      - mysql:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+
+  app:
+    <<: *application
+    expose: ["3001"]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  worker:
+    <<: *application
+    command: ["node", "server/worker.js"]
+    stop_grace_period: 35m
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    environment:
+      SITE_HOST: ${SITE_HOST:-godlyhomes.com}
+    ports: ["80:80", "443:443", "443:443/udp"]
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      app:
+        condition: service_healthy
+
+volumes:
+  mysql:
+  media:
+  caddy_data:
+  caddy_config:
