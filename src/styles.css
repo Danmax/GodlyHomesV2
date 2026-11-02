@@ -15,8 +15,11 @@ h1,h2,h3,p { margin-top: 0; }
 .studio { min-height: 100vh; background: linear-gradient(#fbf7f1, #f4ede3); }
 .studio-header { border-bottom: 1px solid #e6dacb; background: #fbf7f1e8; position: sticky; top: 0; z-index: 10; backdrop-filter: blur(16px); }
 .studio-header-inner { max-width: 1240px; min-height: 80px; margin: auto; padding: 16px 28px; display: flex; align-items: center; gap: 24px; }
-.brand { color: #2f2b27; text-decoration: none; display: inline-flex; align-items: center; gap: 10px; font-family: 'Cormorant Garamond', Georgia, serif; font-size: 28px; font-weight: 600; }
-.brand-mark { background: #76866b; color: #fbf7f1; border-radius: 28px 28px 8px 8px; display: grid; place-items: center; width: 32px; height: 40px; }
+.site-logo { display: inline-flex; align-items: center; width: 320px; max-width: 100%; flex-shrink: 0; text-decoration: none; }
+.site-logo img { display: block; width: 100%; height: auto; }
+.site-logo-footer { width: 360px; border-radius: 16px; background: #fbf7f1; padding: 10px; }
+.studio-brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.studio-brand .site-logo { width: 260px; }
 .header-spacer { flex: 1; }
 .muted { color: #756c62; }
 .small { font-size: 13px; }
@@ -74,7 +77,7 @@ label { display: block; font-size: 13px; font-weight: 600; }
 .edit-grid input[type=number] { width: 100%; }
 .edit-grid input[type=range] { width: 100%; margin-top: 12px; }
 .login-shell { width: min(460px, calc(100% - 40px)); margin: 8vh auto; }
-.login-shell .brand { justify-content: center; display: flex; margin-bottom: 32px; }
+.login-shell .studio-brand { justify-content: center; margin-bottom: 32px; }
 .login-shell .card { padding: 36px; }
 .login-shell h1 { font-size: 36px; }
 .login-shell .btn { width: 100%; margin-top: 24px; }
@@ -85,3 +88,11 @@ audio { width: 100%; margin-top: 14px; }
 @keyframes breathe { 50% { box-shadow: 0 0 0 18px #f1dcd280; } }
 @media(max-width: 800px) { .workspace { grid-template-columns: 1fr; } .studio-header-inner { padding: 14px 18px; gap: 14px; } .studio-main { padding: 30px 18px 60px; } .user-email { display: none; } .brand { font-size: 24px; } .card { padding: 20px; } .episode-card { gap: 14px; } .tabs button { padding: 10px 12px; } .tabs { width: 100%; justify-content: center; } }
 @media(prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
+@media(max-width: 600px) {
+  .site-logo { width: 240px; }
+  .site-logo-footer { width: 320px; }
+  .studio-brand { gap: 4px; }
+  .studio-brand .site-logo { width: 220px; }
+  .studio-header-inner { gap: 8px; }
+}
+@media(max-width: 360px) { .studio-brand .site-logo { width: 175px; } .site-logo { width: 210px; } }

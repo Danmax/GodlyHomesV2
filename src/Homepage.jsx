@@ -1,4 +1,5 @@
 import { PodcastSection, NewsletterSection } from "./PublicPodcast.jsx";
+import Logo from './Logo.jsx';
 import { useState } from "react";
 import {
   Search, Menu, X, Play, Pause, SkipBack, SkipForward, BookOpen, Home,
@@ -109,13 +110,8 @@ function Header() {
   const [menu, setMenu] = useState(false);
   return (
     <header className="sticky top-0 z-30 backdrop-blur" style={{ background: "rgba(251,247,241,.88)", borderBottom: `1px solid ${T.taupeSoft}` }}>
-      <div className="max-w-7xl mx-auto px-5 lg:px-8 h-20 flex items-center gap-6">
-        <a href="#" className="flex items-center gap-2 shrink-0">
-          <span className="arch w-7 h-9 flex items-end justify-center pb-1" style={{ background: T.sage }}>
-            <span className="w-2 h-2 rounded-full" style={{ background: T.cream }} />
-          </span>
-          <span className="serif text-2xl font-semibold" style={{ letterSpacing: "-.01em" }}>Godly Homes</span>
-        </a>
+      <div className="max-w-7xl mx-auto px-5 lg:px-8 min-h-28 flex items-center gap-6">
+        <Logo />
 
         <nav className="hidden lg:flex items-center gap-7 text-sm font-medium" style={{ color: T.ink }}>
           {NAV.map((l) => (
@@ -240,7 +236,7 @@ function Resources() {
 
 function Newsletter() { return <NewsletterSection />; }
 
-function Footer() { return <footer className="px-5 py-12" style={{background:T.charcoal,color:T.cream}}><div className="max-w-7xl mx-auto flex flex-wrap gap-8 items-center justify-between"><div><p className="serif text-3xl">Godly Homes</p><p className="text-sm mt-2">Peace for the home you’re building.</p></div><nav className="flex flex-wrap gap-6 text-sm" aria-label="Footer"><a href="#podcast">Podcast</a><a href="#resources">Resources</a><a href="mailto:hello@godlyhomes.com">Contact</a><a href="/studio">Studio sign in</a></nav><p className="text-xs w-full" style={{opacity:.65}}>© {new Date().getFullYear()} Godly Homes</p></div></footer>; }
+function Footer() { return <footer className="px-5 py-12" style={{background:T.charcoal,color:T.cream}}><div className="max-w-7xl mx-auto flex flex-wrap gap-8 items-center justify-between"><div><Logo footer /><p className="text-sm mt-2">Peace for the home you’re building.</p></div><nav className="flex flex-wrap gap-6 text-sm" aria-label="Footer"><a href="#podcast">Podcast</a><a href="#resources">Resources</a><a href="mailto:hello@godlyhomes.com">Contact</a><a href="/studio">Studio sign in</a></nav><p className="text-xs w-full" style={{opacity:.65}}>© {new Date().getFullYear()} Godly Homes</p></div></footer>; }
 
 export default function GodlyHomesHomepage() {
   return (

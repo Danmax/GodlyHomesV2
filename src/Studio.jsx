@@ -3,8 +3,9 @@ import { Mic, LogOut, ArrowLeft, Plus, Radio, Upload, ArrowUp, ArrowDown, Trash2
 import { api, uploadAudio } from './api.js';
 import Recorder, { downloadBlob, formatTime } from './Recorder.jsx';
 import { recoveries, recoveryBlob, removeRecovery } from './recovery.js';
+import Logo from './Logo.jsx';
 
-export function Brand() { return <a className="brand" href="/"><span className="brand-mark"><Mic size={18} /></span>Godly Homes <span className="small muted">Studio</span></a>; }
+export function Brand() { return <div className="studio-brand"><Logo /><span className="badge">Studio</span></div>; }
 const length = ep => ep.arrangement.segments.reduce((n, s) => n + s.end - s.start, 0);
 const clone = value => structuredClone(value);
 
