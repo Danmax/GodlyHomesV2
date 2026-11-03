@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from './api.js';
 
-const emptyData = { title: '', description: '', coverUrl: '', coverAlt: 'Podcast cover artwork', authorName: '', authorBio: '', authorImageUrl: '', authorLink: '', accentColor: '#55644c' };
+const emptyData = { title: '', description: '', coverUrl: '', coverAlt: 'Podcast cover artwork', authorName: '', authorBio: '', authorImageUrl: '', authorLink: '', accentColor: '#55644c', spotifyUrl: '', applePodcastsUrl: '', rssEmail: '' };
 const blankSeries = () => ({ slug: '', data: { title: '', description: '', coverUrl: '', coverAlt: 'Podcast series artwork' } });
 const slugify = value => value.toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 100);
 
@@ -52,6 +52,13 @@ export default function ChannelManager({ onDirty }) {
       <ImageField label="Channel cover artwork" value={channel.data.coverUrl} onChange={value => data('coverUrl', value)} onBusy={setUploading} />
       <Field label="Cover image description" value={channel.data.coverAlt} onChange={value => data('coverAlt', value)} maxLength="200" />
       <Field label="Brand color" type="color" value={channel.data.accentColor} onChange={value => data('accentColor', value)} />
+      <h3>Distribution & subscriptions</h3>
+      <Field label="Spotify show URL" type="url" value={channel.data.spotifyUrl || ''} onChange={value => data('spotifyUrl', value)} required={false} placeholder="https://open.spotify.com/show/…" />
+      <Field label="Apple Podcasts show URL" type="url" value={channel.data.applePodcastsUrl || ''} onChange={value => data('applePodcastsUrl', value)} required={false} placeholder="https://podcasts.apple.com/…/podcast/…" />
+      <p className="small muted">Add the approved listing for this channel. Each listening button appears only when its link is set. These fields do not submit or move your show to a provider.</p>
+      <Field label="RSS ownership email (public in feed)" type="email" value={channel.data.rssEmail || ''} onChange={value => data('rssEmail', value)} required={false} />
+      <p className="small muted">Spotify and other directories can send ownership verification to this email. It will be visible in your public RSS feed. Leave blank to use the site’s podcast contact email.</p>
+      {channel.version > 0 && <div className="fields"><Field label="Your channel RSS feed" value={new URL(`/channels/${channel.slug}/feed.xml`, location.origin).href} onChange={() => {}} readOnly required={false} /><p className="small muted">Godly Homes hosts your audio and RSS. Make your channel public, add podcast cover artwork, and publish an episode before submitting its feed to a directory. Your feed must be accessible over the public internet.</p><div className="row"><a className="text-link" href="https://creators.spotify.com/" target="_blank" rel="noopener noreferrer">Spotify for Creators ↗</a><a className="text-link" href="https://podcastsconnect.apple.com/" target="_blank" rel="noopener noreferrer">Apple Podcasts Connect ↗</a></div></div>}
       <label className="row"><input type="checkbox" checked={channel.isPublic} onChange={event => change('isPublic', event.target.checked)} />Make my profile and channel public</label>
       <p className="small muted">A private channel hides its published episodes and RSS feed. Make it public before publishing an episode. Recordings and drafts stay private.</p>
       <button className="btn primary" disabled={busy || uploading}>Save profile & channel</button>

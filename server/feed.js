@@ -9,7 +9,7 @@ export function feed(episodes, origin, branding = {}) {
 <title>${title}</title><link>${xml(new URL(branding.homePath || '/', origin).href)}</link><description>${description}</description><language>en-us</language>
 <atom:link href="${xml(new URL(branding.feedPath || '/podcast/feed.xml', origin).href)}" rel="self" type="application/rss+xml"/>
 <itunes:author>${author}</itunes:author><itunes:explicit>false</itunes:explicit><itunes:type>episodic</itunes:type>
-<itunes:owner><itunes:name>${title}</itunes:name><itunes:email>${xml(process.env.SHOW_EMAIL || 'hello@godlyhomes.com')}</itunes:email></itunes:owner>
+<itunes:owner><itunes:name>${author}</itunes:name><itunes:email>${xml(branding.rssEmail || process.env.SHOW_EMAIL || 'hello@godlyhomes.com')}</itunes:email></itunes:owner>
 <itunes:category text="Religion &amp; Spirituality"><itunes:category text="Christianity"/></itunes:category>
 ${image ? `<itunes:image href="${xml(image)}"/>` : ''}
 ${episodes.map(e => `<item><title>${xml(e.title)}</title><description>${xml(e.description)}</description>

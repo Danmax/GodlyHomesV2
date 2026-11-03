@@ -18,7 +18,7 @@ export async function testChannels({ createApp, rows, origin, fixture, claimJob,
   const [alice, beth] = authors;
   assert.equal((await request(app).get('/api/channel')).status, 401);
   assert.equal((await alice.agent.put('/api/channel').set('Origin', origin).send({})).status, 403);
-  const data = name => ({ title: `${name} Family Podcast`, description: 'A channel for faith and family.', authorName: name, authorBio: `Meet ${name}, our author.`, authorImageUrl: '', authorLink: 'https://example.com/author', coverUrl: '', coverAlt: 'Channel artwork', accentColor: '#765432' });
+  const data = name => ({ title: `${name} Family Podcast`, description: 'A channel for faith and family.', authorName: name, authorBio: `Meet ${name}, our author.`, authorImageUrl: '', authorLink: 'https://example.com/author', coverUrl: '', coverAlt: 'Channel artwork', accentColor: '#765432', spotifyUrl: `https://open.spotify.com/show/${name}Show123`, applePodcastsUrl: 'https://podcasts.apple.com/us/podcast/test-show/id123456', rssEmail: `${name.toLowerCase()}@podcast-owner.example` });
   let aliceChannel = (await alice.mutate('put', '/api/channel').send({ slug: 'alice-family', data: data('Alice'), isPublic: false, version: 0 })).body;
   assert.equal(aliceChannel.version, 1);
   assert.equal((await request(app).get('/api/public/channels/alice-family')).status, 404);
@@ -56,6 +56,8 @@ export async function testChannels({ createApp, rows, origin, fixture, claimJob,
   }
   const profile = await request(app).get('/api/public/channels/alice-family');
   assert.equal(profile.body.series.length, 1); assert.equal(profile.body.authorName, 'Alice');
+  assert.equal(profile.body.spotifyUrl, 'https://open.spotify.com/show/AliceShow123');
+  assert.equal((await alice.mutate('put', '/api/channel').send({ ...aliceChannel, data: { ...aliceChannel.data, spotifyUrl: 'https://example.com/show/not-spotify' } })).status, 400);
   assert.equal(profile.body.user_id, undefined); assert.equal(profile.body.email, undefined);
   const list = await request(app).get('/api/public/episodes?channel=alice-family&series=family-rhythms');
   assert.deepEqual(list.body.map(item => item.title), ['Alice episode']);
@@ -69,6 +71,7 @@ export async function testChannels({ createApp, rows, origin, fixture, claimJob,
     const response = await request(app).get(feedPath);
     assert.equal(response.status, 200); assert.ok(response.text.includes('Alice episode')); assert.ok(!response.text.includes('Beth episode'));
     assert.ok(response.text.includes(feedPath)); assert.match(response.text, /<itunes:author>Alice<\/itunes:author>/);
+    assert.match(response.text, /<itunes:email>alice@podcast-owner.example<\/itunes:email>/);
   }
   const nextSeries = (await alice.mutate('post', '/api/channel/series').send({ ...seriesBody, slug: 'new-series' })).body;
   const resaved = await alice.mutate('put', `/api/episodes/${alice.episode.id}`).send({ ...alice.episode, seriesId: nextSeries.id });
@@ -93,6 +96,7 @@ export async function testChannels({ createApp, rows, origin, fixture, claimJob,
     const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: true });
     try {
       const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+      await page.addInitScript(() => { Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async text => { window.copiedPodcastFeed = text; } } }); });
       const errors = []; page.on('pageerror', error => errors.push(error.message));
       await page.goto(`${url}/studio`);
       await page.getByLabel('Email', { exact: true }).fill(alice.email); await page.getByLabel('Password', { exact: true }).fill(password);
@@ -100,6 +104,7 @@ export async function testChannels({ createApp, rows, origin, fixture, claimJob,
       assert.equal(await page.getByRole('button', { name: 'Website Admin', exact: true }).count(), 0);
       await page.getByRole('button', { name: 'My channel', exact: true }).click();
       await page.getByLabel('Channel title', { exact: true }).fill('Alice’s Updated Channel');
+      await page.getByLabel('Spotify show URL', { exact: true }).fill('https://open.spotify.com/show/AliceUpdated123');
       await page.getByRole('button', { name: 'Save profile & channel', exact: true }).click();
       await page.getByText('Your profile and channel settings are saved.', { exact: true }).waitFor();
       await page.getByRole('button', { name: 'New series', exact: true }).click();
@@ -121,13 +126,35 @@ export async function testChannels({ createApp, rows, origin, fixture, claimJob,
         await page.goto(url + route);
         await page.getByRole('heading', { level: 1 }).waitFor();
         await page.getByText('Loading channel…').waitFor({ state: 'hidden' });
+        if (route !== '/channels') {
+          const spotify = page.getByRole('link', { name: /on Spotify \(opens/ });
+          await spotify.waitFor();
+          assert.equal(await spotify.getAttribute('href'), 'https://open.spotify.com/show/AliceUpdated123');
+          assert.equal(await page.locator('a[href="https://open.spotify.com/show/BethShow123"]').count(), 0);
+        }
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, route);
       }
       await page.goto(`${url}/channels/alice-family/series/family-rhythms`);
       await page.getByRole('heading', { level: 1, name: 'Family Rhythms' }).waitFor();
       await page.getByRole('link', { name: 'Alice episode', exact: true }).waitFor();
       assert.equal(await page.getByRole('link', { name: 'Beth episode', exact: true }).count(), 0);
+      await page.getByRole('button', { name: 'Copy RSS URL', exact: true }).click();
+      await page.getByRole('status').filter({ hasText: 'RSS feed URL copied.' }).waitFor();
+      assert.equal(await page.evaluate(() => window.copiedPodcastFeed), `${url}/channels/alice-family/series/family-rhythms/feed.xml`);
+      await page.getByText('Use another podcast app', { exact: true }).click();
+      assert.equal(await page.getByLabel('RSS feed URL', { exact: true }).inputValue(), `${url}/channels/alice-family/series/family-rhythms/feed.xml`);
       await page.screenshot({ path: 'test-results/author-series-mobile.png', fullPage: true });
+      await page.goto(`${url}/channels/beth-family`);
+      await page.getByRole('link', { name: /on Spotify \(opens/ }).waitFor();
+      assert.equal(await page.getByRole('link', { name: /on Spotify \(opens/ }).getAttribute('href'), 'https://open.spotify.com/show/BethShow123');
+      const bethChannel = (await beth.agent.get('/api/channel')).body.channel;
+      assert.equal((await beth.agent.put('/api/channel').set('Origin', url).set('X-CSRF-Token', beth.csrf).send({ ...bethChannel, data: { ...bethChannel.data, spotifyUrl: '' } })).status, 200);
+      await page.reload();
+      await page.getByRole('heading', { level: 1, name: 'Beth Family Podcast' }).waitFor();
+      assert.equal(await page.getByRole('link', { name: /on Spotify \(opens/ }).count(), 0);
+      await page.goto(url);
+      await page.getByRole('heading', { level: 1 }).waitFor();
+      assert.equal(await page.getByRole('link', { name: /on Spotify \(opens/ }).count(), 0);
       assert.deepEqual(errors, []);
     } finally { await browser.close(); await new Promise(resolve => server.close(resolve)); config.origin = previousOrigin; }
   }

@@ -3,14 +3,18 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { rows, json } from './db.js';
 import { imageUrl, safeHref } from './website-validation.js';
+import { validPodcastLink } from '../shared/podcast-links.js';
 
 const route = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
 const text = z.string().trim().min(1).max(200);
+const providerLink = provider => z.string().trim().max(2000).optional().default('').refine(value => !value || validPodcastLink(value, provider), `Use a full HTTPS ${provider === 'spotify' ? 'open.spotify.com/show/…' : 'podcasts.apple.com/…/podcast/…'} show URL.`);
 export const channelSlug = z.string().min(3).max(100).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'Use lowercase letters, numbers, and hyphens for the address.');
 export const channelData = z.object({ title: text, description: z.string().trim().min(1).max(4000), coverUrl: imageUrl, coverAlt: text,
   authorName: text, authorBio: z.string().trim().min(1).max(4000), authorImageUrl: imageUrl, authorLink: z.union([z.literal(''), safeHref]),
   accentColor: z.string().regex(/^#[0-9a-fA-F]{6}$/, 'Choose a six-digit color.'),
+  spotifyUrl: providerLink('spotify'), applePodcastsUrl: providerLink('apple'),
+  rssEmail: z.union([z.literal(''), z.email().max(254)]).optional().default(''),
 });
 export const seriesData = z.object({ title: text, description: z.string().trim().min(1).max(4000), coverUrl: imageUrl, coverAlt: text });
 export const channelSummary = item => item?.channel_slug ? { ...json(item.channel_data), slug: item.channel_slug } : null;
