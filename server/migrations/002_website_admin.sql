@@ -1,0 +1,24 @@
+CREATE TABLE IF NOT EXISTS website_documents (
+  document_key VARCHAR(40) PRIMARY KEY,
+  data JSON NOT NULL,
+  version INT UNSIGNED NOT NULL DEFAULT 1,
+  updated_by CHAR(36) NULL,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (updated_by) REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS website_entries (
+  id CHAR(36) PRIMARY KEY,
+  kind ENUM('resource','product') NOT NULL,
+  slug VARCHAR(160) NOT NULL,
+  status ENUM('draft','published') NOT NULL DEFAULT 'draft',
+  data JSON NOT NULL,
+  sort_order INT NOT NULL DEFAULT 0,
+  version INT UNSIGNED NOT NULL DEFAULT 1,
+  updated_by CHAR(36) NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE (kind, slug),
+  INDEX (kind, status, sort_order),
+  FOREIGN KEY (updated_by) REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

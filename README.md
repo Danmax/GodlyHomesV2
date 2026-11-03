@@ -14,6 +14,7 @@ Solo podcast recording and publishing for **godlyhomes.com**. The original two J
 - Published versions remain unchanged during later draft edits. Unpublishing removes the public player/feed access.
 - Episode owners can delete a draft or published episode from the list or editor after confirmation. Deletion removes the episode, its publication and render jobs; original/shared source audio remains available. Queued jobs are removed and running workers discard results for deleted jobs.
 - Newsletter email collection with explicit consent. **Email delivery is not configured**; the UI confirms saved signup only.
+- Website Admin through the same login: edit About, homepage and announcement copy, resource/store page headings, logo, navigation, contact/footer and signup text. Create, edit, publish, unpublish and delete resources and digital/physical store items, including images, prices and checkout links.
 
 The runtime is React/Vite + Express + `mysql2`, using versioned SQL migrations. This keeps the existing React components usable without a framework migration. Audio is converted into lossless FLAC sources on a persistent volume; database rows contain paths/metadata and edit instructions, not audio blobs. A separate worker renders MP3 exports. This is the single-VPS MVP storage implementation; S3/CDN integration is a later deployment option.
 
@@ -30,6 +31,16 @@ Requires Node 22.14+, MySQL 8.0+ (tested locally with MySQL 9.6), FFmpeg and ffp
 Local development automatically uses the installed `ffmpeg-static` and `ffprobe-static` binaries. Explicit `FFMPEG_PATH` and `FFPROBE_PATH` executable paths override them. The production image uses OS-installed tools.
 
 For a local production build, `npm run build`, set `APP_URL` to your served origin, then `npm start` and `npm run worker`. Microphone capture needs localhost or HTTPS.
+
+### Website Admin
+
+Run migrations before upgrading the application. Migration `002_website_admin.sql` adds admin/publisher roles and website content tables, and copies the existing About/settings and six resources into MySQL once. Subsequent migrations do not reset edited or deleted content. Existing accounts default to podcast publisher access.
+
+To give the configured owner account website editing access, set `ADMIN_EMAIL` to that existing account and run `npm run admin:grant`. This changes only that account's role and preserves its credentials. New accounts created by `npm run admin:create` have the admin role. Admin access is checked from MySQL on every private request; being signed in as a publisher is insufficient.
+
+Sign in at `/studio` and choose **Website Admin**, or open `/admin`. Page/settings forms use **Save and publish**. Resource/store entries have Draft and Published visibility; drafts are excluded from public APIs and pages. Version checks prevent an old browser tab from overwriting a newer edit. Text is rendered as plain text with line breaks rather than executable HTML.
+
+Images accept PNG, JPEG and WebP up to 5 MB and use persistent media storage. A local admin configured with `MEDIA_REMOTE_URL` forwards uploads to the hosted site using the same authenticated session. Product checkout links must use HTTPS. Checkout, payments, tax/shipping and paid-file delivery are handled by the linked provider; the app does not collect payment details or invent a cart. Products without a checkout link offer a contact action. Email signup editing changes the form copy, not email delivery configuration.
 
 ### Sharing a database between local development and Hostinger
 
@@ -89,7 +100,7 @@ The Dockerfile runs as an unprivileged user; Caddy is the sole exposed app entry
 - Source playback honors trim points. Fades, gain and music are heard in the completed server render. Whole-episode browser mixing is avoided.
 - The worker performs stereo -16 LUFS / -1 dBTP normalization. Lossy encoding may slightly change measured peaks; verify long representative exports and listening quality before a public launch. MP3 only in this MVP; WAV masters are not exposed.
 - Media remains on the VPS, with no automatic retention cleanup or quotas per user. Monitor volume free space, worker failures and queue age. Orphaned source assets/old exports are retained to avoid accidental loss; add reviewed retention rules as usage grows.
-- No remote guests, video, transcription, scheduled publishing, ecommerce, full resource CMS, password-reset email or bulk email delivery. Account creation is an administrator CLI operation; a production password-reset/revocation workflow should precede wider team access.
+- No remote guests, video, transcription, scheduled publishing, built-in payment processing/fulfillment, password-reset email or bulk email delivery. Account creation and role grants are administrator CLI operations; a password-reset/revocation workflow should precede wider team access.
 - Studio accounts own private drafts and sources. Any studio account can publish its own episodes into the shared Godly Homes feed; only create accounts for trusted publishers.
 
 See `DEPLOYMENT_PLAN.md` for the broader architecture and later phases. No Hostinger purchase, DNS change or deployment is performed by local setup commands.

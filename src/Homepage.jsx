@@ -1,5 +1,7 @@
 import { PodcastSection, NewsletterSection } from "./PublicPodcast.jsx";
 import SiteLayout from './SiteLayout.jsx';
+import { useSiteContent } from './SiteContent.jsx';
+import { ResourceCard } from './ContentPages.jsx';
 import { useState } from "react";
 import {
   Search, Menu, X, Play, Pause, SkipBack, SkipForward, BookOpen, Home,
@@ -85,15 +87,16 @@ const PILLARS = [
 
 /* ---------- Sections ---------- */
 function Announcement() {
+  const { documents: { home } } = useSiteContent();
   const [open, setOpen] = useState(true);
-  if (!open) return null;
+  if (!open || !home.announcementEnabled) return null;
   return (
     <div className="text-sm" style={{ background: T.sageDeep, color: T.cream }}>
       <div className="max-w-7xl mx-auto px-5 py-2 flex items-center justify-center gap-3 relative">
         <Heart size={14} />
         <p className="text-center">
-          A little encouragement for the home you’re building.{" "}
-          <a href="#podcast" className="underline underline-offset-4 font-semibold">Explore the podcast</a>
+          {home.announcementText}{" "}
+          <a href={home.announcementHref} className="underline underline-offset-4 font-semibold">{home.announcementLabel}</a>
         </p>
         <button onClick={() => setOpen(false)} aria-label="Dismiss announcement" className="absolute right-4 opacity-80 hover:opacity-100">
           <X size={16} />
@@ -104,22 +107,23 @@ function Announcement() {
 }
 
 function Hero() {
+  const { documents: { home } } = useSiteContent();
   return (
     <section style={{ background: `linear-gradient(180deg, ${T.cream} 0%, ${T.linen} 100%)` }}>
       <div className="max-w-7xl mx-auto px-5 lg:px-8 pt-16 pb-24 lg:pt-24 lg:pb-32 grid lg:grid-cols-12 gap-14 items-center">
         <div className="lg:col-span-6 rise">
           <h1 className="serif font-semibold leading-none" style={{ fontSize: "clamp(2.9rem, 6vw, 5.2rem)", letterSpacing: "-.02em" }}>
-            Peace for the home you’re building.
+            {home.title}
           </h1>
           <p className="mt-7 text-lg leading-relaxed max-w-xl" style={{ color: T.ink }}>
-            Practical help and steady encouragement for Christian mothers raising children to know and serve God — one ordinary, holy day at a time.
+            {home.description}
           </p>
           <div className="mt-10 flex flex-wrap gap-4">
-            <a href="#podcast" className="rounded-full px-7 h-14 inline-flex items-center gap-2 font-semibold transition-transform hover:scale-105" style={{ background: T.sageDeep, color: T.cream }}>
-              <Play size={18} fill={T.cream} /> Listen to the podcast
+            <a href={home.primaryHref} className="rounded-full px-7 h-14 inline-flex items-center gap-2 font-semibold transition-transform hover:scale-105" style={{ background: T.sageDeep, color: T.cream }}>
+              <Play size={18} fill={T.cream} /> {home.primaryLabel}
             </a>
-            <a href="/resources" className="rounded-full px-7 h-14 inline-flex items-center font-semibold transition-colors" style={{ border: `1.5px solid ${T.charcoal}` }}>
-              Explore resources
+            <a href={home.secondaryHref} className="rounded-full px-7 h-14 inline-flex items-center font-semibold transition-colors" style={{ border: `1.5px solid ${T.charcoal}` }}>
+              {home.secondaryLabel}
             </a>
           </div>
           <div className="mt-12 flex flex-wrap items-center gap-x-8 gap-y-3 text-sm" style={{ color: T.ink }}>
@@ -187,12 +191,8 @@ function Pillars() {
 function Podcast() { return <PodcastSection />; }
 
 function Resources() {
-  const items = [
-    ["A quiet beginning", "Set aside five minutes before the day gets busy. Read Psalm 23, write one sentence of gratitude, and pray for each member of your household by name."],
-    ["A gentle home reset", "Choose one surface to clear, start one load of laundry, and decide what’s for dinner. Invite children to help with one task they can finish. Small, steady steps count."],
-    ["A family prayer rhythm", "Choose a moment you already share: breakfast, the school run, or bedtime. Let each person name one thing they’re thankful for and one person to pray for."],
-  ];
-  return <section id="resources" className="py-24 px-5 lg:px-8"><div className="max-w-7xl mx-auto"><p className="eyebrow">Small steps, steady grace</p><div className="row between"><h2 className="serif text-5xl font-semibold">A little help for today.</h2><a className="btn" href="/resources">Browse all resources →</a></div><div className="grid md:grid-cols-3 gap-6 mt-10">{items.map(([title, body]) => <article className="card" key={title}><h3 className="serif text-3xl">{title}</h3><p className="mt-4 leading-relaxed" style={{color:T.ink}}>{body}</p></article>)}</div></div></section>;
+  const { resources, loading, error } = useSiteContent();
+  return <section id="resources" className="py-24 px-5 lg:px-8"><div className="max-w-7xl mx-auto"><p className="eyebrow">Small steps, steady grace</p><div className="row between"><h2 className="serif text-5xl font-semibold">A little help for today.</h2><a className="btn" href="/resources">Browse all resources →</a></div>{loading ? <p role="status">Loading resources…</p> : error ? <p className="message">Resources are temporarily unavailable.</p> : <div className="resource-grid">{resources.slice(0, 3).map(resource => <ResourceCard key={resource.id} resource={resource} />)}</div>}</div></section>;
 }
 
 function Newsletter() { return <NewsletterSection />; }

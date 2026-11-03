@@ -1,7 +1,9 @@
 import logo from './assets/godly-homes-logo.png';
+import { useSiteContent } from './SiteContent.jsx';
 
 export default function Logo({ footer = false }) {
-  return <a className={`site-logo${footer ? ' site-logo-footer' : ''}`} href="/" aria-label="Godly Homes home">
-    <img src={logo} alt="Godly Homes — Family, Motherhood, Ministry" width="2172" height="724" />
+  const { documents: { site } } = useSiteContent();
+  return <a className={`site-logo${footer ? ' site-logo-footer' : ''}`} href="/" aria-label={`${site.name} home`}>
+    <img src={site.logoUrl || logo} alt={site.logoAlt} width="2172" height="724" />
   </a>;
 }

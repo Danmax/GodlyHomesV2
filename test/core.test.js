@@ -7,6 +7,15 @@ import { feed } from '../server/feed.js';
 import { buildMix } from '../server/audio.js';
 import { mediaDirectory } from '../server/media-path.js';
 import { mediaFile } from '../server/media.js';
+import { safeHref, productSchema } from '../server/website-validation.js';
+
+test('Website links reject executable URLs and products require valid prices', () => {
+  assert.equal(safeHref.safeParse('javascript:alert(1)').success, false);
+  assert.equal(safeHref.safeParse('//untrusted.example').success, false);
+  assert.equal(safeHref.safeParse('/resources').success, true);
+  assert.equal(safeHref.safeParse('https://example.com/checkout').success, true);
+  assert.equal(productSchema.safeParse({ title: 'Item', description: 'Description', kind: 'physical', priceCents: -10, currency: 'USD', imageUrl: '', imageAlt: '', checkoutUrl: '' }).success, false);
+});
 
 test('Hostinger media survives release changes and invalid storage keys are rejected', () => {
   const first = '/home/account/domains/example.com/hbuilds/versions/first/nodejs';

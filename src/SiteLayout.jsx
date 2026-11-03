@@ -1,20 +1,19 @@
 import { useEffect, useState } from 'react';
 import { Menu, X, ArrowUpRight } from 'lucide-react';
 import Logo from './Logo.jsx';
-
-const links = [
-  ['Home', '/'], ['About', '/about'], ['Resources', '/resources'],
-  ['Podcast', '/#podcast'], ['Store', '/store'],
-];
+import { useSiteContent } from './SiteContent.jsx';
 
 export function usePageMeta(title, description) {
+  const { documents: { site } } = useSiteContent();
   useEffect(() => {
-    document.title = `${title} — Godly Homes`;
+    document.title = `${title} — ${site.name}`;
     document.querySelector('meta[name="description"]')?.setAttribute('content', description);
-  }, [title, description]);
+  }, [title, description, site.name]);
 }
 
 export function Header() {
+  const { documents: { site } } = useSiteContent();
+  const links = site.navigation.map(item => [item.label, item.href]);
   const [open, setOpen] = useState(false);
   const current = location.pathname.replace(/\/$/, '') || '/';
   const isCurrent = href => !href.includes('#') && (current === href || (href === '/resources' && current.startsWith('/resources/')));
@@ -32,12 +31,14 @@ export function Header() {
 }
 
 export function Footer() {
+  const { documents: { site } } = useSiteContent();
+  const links = site.navigation.map(item => [item.label, item.href]);
   return <footer className="site-footer"><div className="site-container">
-    <div className="footer-grid"><div><Logo footer /><p className="footer-tagline">Peace for the home you’re building.</p></div>
+    <div className="footer-grid"><div><Logo footer /><p className="footer-tagline">{site.tagline}</p></div>
       <nav aria-label="Footer navigation"><p className="eyebrow">Explore</p>{links.map(([label, href]) => <a href={href} key={href}>{label}</a>)}</nav>
-      <div><p className="eyebrow">A little connection</p><p className="footer-copy">Questions, ideas, or a story to share?<br />We’d love to hear from you.</p><a className="footer-email" href="mailto:hello@godlyhomes.com">hello@godlyhomes.com</a></div>
+      <div><p className="eyebrow">A little connection</p><p className="footer-copy copy-text">{site.footerText}</p><a className="footer-email" href={`mailto:${site.email}`}>{site.email}</a></div>
     </div>
-    <div className="footer-bottom"><p>© {new Date().getFullYear()} Godly Homes</p><p>Family · Motherhood · Ministry</p><a href="/studio">Studio sign in</a></div>
+    <div className="footer-bottom"><p>© {new Date().getFullYear()} {site.name}</p><p>Family · Motherhood · Ministry</p><a href="/admin">Admin & studio sign in</a></div>
   </div></footer>;
 }
 

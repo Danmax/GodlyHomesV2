@@ -3,6 +3,8 @@ import { mkdtemp, readFile, rm, mkdir } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { chromium } from 'playwright';
+import { defaultDocuments } from '../shared/website.js';
+import { resources } from '../shared/resources.js';
 
 // Exercise the production server and built UI without connecting to any database.
 const directory = await mkdtemp(path.join(os.tmpdir(), 'gh-pages-'));
@@ -21,6 +23,7 @@ try {
   browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: true });
   const page = await browser.newPage({ reducedMotion: 'reduce' });
   await page.route('**/api/public/episodes', route => route.fulfill({ json: [] }));
+  await page.route('**/api/public/website', route => route.fulfill({ json: { documents: defaultDocuments, resources, products: [] } }));
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await mkdir('test-results', { recursive: true });
@@ -43,6 +46,7 @@ try {
     }
   }
   await page.goto(`${origin}/resources`);
+  await page.locator('.resource-card').first().waitFor();
   assert.equal(await page.locator('.resource-card').count(), 6);
   await page.getByRole('button', { name: 'Faith', exact: true }).click();
   assert.equal(await page.locator('.resource-card').count(), 2);

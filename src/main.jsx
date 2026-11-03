@@ -3,7 +3,8 @@ import { createRoot } from 'react-dom/client';
 import Homepage from './Homepage.jsx';
 import Studio from './Studio.jsx';
 import { PublicEpisode } from './PublicPodcast.jsx';
-import { AboutPage, ResourcesPage, ResourcePage, StorePage, NotFoundPage } from './ContentPages.jsx';
+import { AboutPage, ResourcesPage, ResourcePage, StorePage, ProductPage, NotFoundPage } from './ContentPages.jsx';
+import { SiteContentProvider } from './SiteContent.jsx';
 import './styles.css';
 
 class ErrorBoundary extends React.Component {
@@ -13,12 +14,14 @@ class ErrorBoundary extends React.Component {
 }
 const path = location.pathname.replace(/\/+$/, '') || '/';
 const resourceMatch = path.match(/^\/resources\/([^/]+)$/);
+const productMatch = path.match(/^\/store\/([^/]+)$/);
 const page = path === '/' ? <Homepage />
   : path === '/about' ? <AboutPage />
     : path === '/resources' ? <ResourcesPage />
       : resourceMatch ? <ResourcePage slug={resourceMatch[1]} />
         : path === '/store' ? <StorePage />
-          : path === '/studio' ? <Studio />
+          : productMatch ? <ProductPage slug={productMatch[1]} />
+          : ['/studio', '/admin'].includes(path) ? <Studio />
             : path.startsWith('/podcast/') ? <PublicEpisode id={path.split('/')[2]} />
               : <NotFoundPage />;
-createRoot(document.getElementById('root')).render(<ErrorBoundary>{page}</ErrorBoundary>);
+createRoot(document.getElementById('root')).render(<ErrorBoundary><SiteContentProvider>{page}</SiteContentProvider></ErrorBoundary>);

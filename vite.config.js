@@ -4,5 +4,5 @@ import tailwindcss from '@tailwindcss/vite';
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
-  server: { proxy: { '/api': 'http://127.0.0.1:3001', '/media': 'http://127.0.0.1:3001', '/podcast/feed.xml': 'http://127.0.0.1:3001' } },
+  server: { proxy: { '/api': 'http://127.0.0.1:3001', '/media': 'http://127.0.0.1:3001', '/images': 'http://127.0.0.1:3001', '/podcast/feed.xml': 'http://127.0.0.1:3001' } },
 });

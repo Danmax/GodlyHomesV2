@@ -13,6 +13,7 @@ import { episodeSchema, validateAssets } from './validation.js';
 import { probe, run } from './audio.js';
 import { feed } from './feed.js';
 import { receiveMedia, requireMediaFile, syncEpisodeMedia, mediaFile } from './media.js';
+import { publicWebsite, websiteAdmin, publicImage } from './website.js';
 
 const asyncRoute = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const failure = (message, status = 400) => Object.assign(new Error(message), { status });
@@ -55,8 +56,10 @@ export async function createApp({ serveStatic = true } = {}) {
     const token = randomBytes(32).toString('hex'), csrf = randomBytes(32).toString('hex');
     await rows('DELETE FROM sessions WHERE expires_at <= UTC_TIMESTAMP()');
     await rows('INSERT INTO sessions (token_hash, user_id, csrf_token, expires_at) VALUES (?, ?, ?, DATE_ADD(UTC_TIMESTAMP(), INTERVAL 7 DAY))', [digest(token), user.id, csrf]);
-    res.cookie('gh_session', token, cookieOptions()).json({ user: { id: user.id, email: user.email }, csrf });
+    res.cookie('gh_session', token, cookieOptions()).json({ user: { id: user.id, email: user.email, role: user.role }, csrf });
   }));
+  app.get('/api/public/website', asyncRoute(async (_req, res) => res.json(await publicWebsite())));
+  app.get('/images/:file', publicImage);
   app.get('/api/public/episodes', asyncRoute(async (_req, res) => {
     const episodes = await rows(`${publicQuery} ORDER BY p.published_at DESC`);
     res.json(episodes.map(e => ({ id: e.episode_id, title: e.title, description: e.description, number: e.episode_number, duration: e.duration, publishedAt: e.published_at, url: `/media/${e.episode_id}/${e.job_id}.mp3` })));
@@ -78,6 +81,7 @@ export async function createApp({ serveStatic = true } = {}) {
   }));
 
   app.use('/api', asyncRoute(authenticate));
+  app.use('/api/admin', websiteAdmin);
   app.get('/api/auth/me', (req, res) => res.json({ user: req.user, csrf: req.csrf }));
   app.post('/api/auth/logout', asyncRoute(async (req, res) => {
     await rows('DELETE FROM sessions WHERE user_id = ? AND csrf_token = ?', [req.user.id, req.csrf]);
@@ -234,7 +238,7 @@ export async function createApp({ serveStatic = true } = {}) {
   app.use('/api', (_req, res) => res.status(404).json({ error: 'Endpoint not found.' }));
   if (serveStatic) {
     app.use(express.static(path.resolve('dist')));
-    app.get(['/', '/about', '/resources', '/resources/:slug', '/store', '/studio', '/podcast/:id'], (_req, res) => res.sendFile(path.resolve('dist/index.html')));
+    app.get(['/', '/about', '/resources', '/resources/:slug', '/store', '/store/:slug', '/admin', '/studio', '/podcast/:id'], (_req, res) => res.sendFile(path.resolve('dist/index.html')));
   }
   app.use((error, _req, res, next) => {
     if (res.headersSent) return next(error);

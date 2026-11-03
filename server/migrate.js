@@ -1,5 +1,6 @@
 import { readFile, readdir } from 'node:fs/promises';
 import { db } from './db.js';
+import { initializeWebsite } from './seed-website.js';
 
 try {
   // Single migration runner, with a database advisory lock to prevent competing deployments.
@@ -12,8 +13,13 @@ try {
     for (const name of (await readdir(directory)).filter(n => n.endsWith('.sql')).sort()) {
       const [existing] = await connection.execute('SELECT name FROM schema_migrations WHERE name = ?', [name]);
       if (existing.length) continue;
+      if (name === '002_website_admin.sql') {
+        const [columns] = await connection.query("SHOW COLUMNS FROM users LIKE 'role'");
+        if (!columns.length) await connection.query("ALTER TABLE users ADD COLUMN role ENUM('publisher','admin') NOT NULL DEFAULT 'publisher'");
+      }
       const source = await readFile(new URL(name, directory), 'utf8');
       for (const statement of source.split(';').map(s => s.trim()).filter(Boolean)) await connection.query(statement);
+      if (name === '002_website_admin.sql') await initializeWebsite(connection);
       await connection.execute('INSERT INTO schema_migrations (name) VALUES (?)', [name]);
       console.log(`Applied ${name}`);
     }
