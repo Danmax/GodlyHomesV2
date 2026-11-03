@@ -4,8 +4,10 @@ import { api } from './api.js';
 import { useSiteContent } from './SiteContent.jsx';
 import { documentFields } from './admin-fields.js';
 import CommerceAdmin from './CommerceAdmin.jsx';
+import EpisodeAdmin from './EpisodeAdmin.jsx';
 
 const sections = [
+  { id: 'episodes', label: 'Podcast episodes', icon: BookOpen, href: '/channels' },
   { id: 'about', label: 'About page', icon: FileText, document: 'about', href: '/about' },
   { id: 'home', label: 'Homepage', icon: Home, document: 'home', href: '/' },
   { id: 'podcast', label: 'Podcast branding', icon: Image, document: 'podcast', href: '/#podcast' },
@@ -42,7 +44,7 @@ export default function AdminPanel({ onDirtyChange }) {
     <div className="row between admin-heading"><div><p className="eyebrow">Your website, in your hands</p><h1>Website Admin</h1><p className="muted">Manage your pages, reflexions, and items for sale.</p></div><a className="btn" href={section.href} target="_blank" rel="noopener noreferrer">View website <ArrowUpRight size={15} /></a></div>
     {error && <p className="message error" role="alert">{error}</p>}
     <div className="admin-layout"><nav className="admin-nav" aria-label="Website administration">{sections.map(item => <button key={item.id} aria-current={active === item.id ? 'page' : undefined} onClick={() => select(item.id)}><item.icon size={17} />{item.label}</button>)}</nav><section className="admin-content">
-      {['stripe', 'orders', 'discounts'].includes(section.id) ? <CommerceAdmin key={section.id} ordersOnly={section.id === 'orders'} discountsOnly={section.id === 'discounts'} /> : section.kind ? <EntriesManager key={section.id} kind={section.kind} onDirty={setDirty} /> : documents ? <DocumentEditor key={section.id} document={documents.find(d => d.key === section.document)} title={section.label} onDirty={setDirty} onSaved={result => setDocuments(list => list.map(item => item.key === result.key ? { ...item, ...result } : item))} /> : <p role="status">Loading page settings…</p>}
+      {section.id === 'episodes' ? <EpisodeAdmin /> : ['stripe', 'orders', 'discounts'].includes(section.id) ? <CommerceAdmin key={section.id} ordersOnly={section.id === 'orders'} discountsOnly={section.id === 'discounts'} /> : section.kind ? <EntriesManager key={section.id} kind={section.kind} onDirty={setDirty} /> : documents ? <DocumentEditor key={section.id} document={documents.find(d => d.key === section.document)} title={section.label} onDirty={setDirty} onSaved={result => setDocuments(list => list.map(item => item.key === result.key ? { ...item, ...result } : item))} /> : <p role="status">Loading page settings…</p>}
     </section></div>
   </>;
 }

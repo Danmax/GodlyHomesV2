@@ -8,7 +8,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { rows, transaction, json } from './db.js';
 import { config } from './config.js';
-import { authenticate, cookieOptions, digest, hashPassword, verifyPassword } from './auth.js';
+import { authenticate, cookieOptions, digest, hashPassword, verifyPassword, requireAdmin } from './auth.js';
 import { episodeSchema, validateAssets } from './validation.js';
 import { probe, run } from './audio.js';
 import { feed } from './feed.js';
@@ -22,17 +22,37 @@ import { audioUploadLimit, guardedUpload, storageUsed } from './upload-budget.js
 const asyncRoute = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const failure = (message, status = 400) => Object.assign(new Error(message), { status });
 const publicQuery = `SELECT p.*, j.bytes, j.duration, c.slug AS channel_slug, c.data AS channel_data, s.slug AS series_slug, s.data AS series_data
-  FROM publications p JOIN episodes e ON e.id = p.episode_id
+  FROM publications p JOIN episodes e ON e.id = p.episode_id AND e.admin_hidden = FALSE
   LEFT JOIN podcast_channels c ON c.user_id = e.user_id
   LEFT JOIN podcast_series s ON s.id = p.series_id AND s.user_id = e.user_id
   JOIN render_jobs j ON j.id = p.job_id AND (c.user_id IS NULL OR c.is_public = TRUE)`;
-const mapEpisode = e => ({ id: e.id, title: e.title, description: e.description, number: e.episode_number, seriesId: e.series_id || null, version: e.version, arrangement: json(e.arrangement), updatedAt: e.updated_at });
+const mapEpisode = e => ({ id: e.id, title: e.title, description: e.description, number: e.episode_number, seriesId: e.series_id || null, version: e.version, arrangement: json(e.arrangement), updatedAt: e.updated_at, adminHidden: Boolean(e.admin_hidden) });
 const mapPublicEpisode = e => ({ id: e.episode_id, title: e.title, description: e.description, number: e.episode_number, duration: e.duration, publishedAt: e.published_at, url: `/media/${e.episode_id}/${e.job_id}.mp3`, channel: channelSummary(e), series: seriesSummary(e) });
 const mapAsset = a => ({ id: a.id, name: a.filename, duration: a.duration, bytes: Number(a.bytes), url: `/api/assets/${a.id}/audio` });
 const mapJob = j => ({ id: j.id, revision: j.revision, state: j.state, error: j.error, createdAt: j.created_at, duration: j.duration, url: j.state === 'ready' ? `/api/jobs/${j.id}/audio` : null });
 async function audioPath(key, bytes) {
   try { return await requireMediaFile(key, bytes); }
   catch (error) { if (error.status === 409) throw failure('The audio file is not stored on this server.', 404); throw error; }
+}
+
+async function deleteEpisode(id, { ownerId, version } = {}) {
+  const outputs = await transaction(async connection => {
+    const query = (sql, values) => rows(sql, values, connection);
+    const [episode] = await query(`SELECT id, version FROM episodes WHERE id = ?${ownerId ? ' AND user_id = ?' : ''} FOR UPDATE`, ownerId ? [id, ownerId] : [id]);
+    if (!episode) throw failure('Episode not found.', 404);
+    if (version !== undefined && episode.version !== version) throw failure('This episode changed. Refresh the list before deleting it.', 409);
+    const jobs = await query('SELECT output_key FROM render_jobs WHERE episode_id = ? FOR UPDATE', [episode.id]);
+    await query('DELETE FROM publications WHERE episode_id = ?', [episode.id]);
+    await query('DELETE FROM render_jobs WHERE episode_id = ?', [episode.id]);
+    await query('DELETE FROM episodes WHERE id = ?', [episode.id]);
+    return jobs.map(job => job.output_key).filter(Boolean);
+  });
+  // Keep original recordings, which can be shared by other episodes.
+  // Running workers discard their results when their job no longer exists.
+  for (const key of outputs) {
+    try { await unlink(mediaFile(key)); }
+    catch (error) { if (error.code !== 'ENOENT') console.error('Could not remove deleted episode export:', error.code || error.message); }
+  }
 }
 
 export async function createApp({ serveStatic = true, stripeClient, commerceSettings } = {}) {
@@ -129,6 +149,32 @@ export async function createApp({ serveStatic = true, stripeClient, commerceSett
   app.use('/api/channel', imageRoutes, channelRoutes);
   app.use('/api/admin/commerce', commerce.adminRoutes);
   app.use('/api/admin', websiteAdmin);
+  app.get('/api/admin/episodes', requireAdmin, asyncRoute(async (_req, res) => {
+    const episodes = await rows(`SELECT e.id, e.title, e.version, e.admin_hidden, e.updated_at, u.email, c.slug AS channel_slug, c.data AS channel_data, c.is_public,
+      p.job_id, p.title AS published_title FROM episodes e JOIN users u ON u.id = e.user_id
+      LEFT JOIN podcast_channels c ON c.user_id = e.user_id
+      LEFT JOIN publications p ON p.episode_id = e.id ORDER BY e.updated_at DESC`);
+    res.json(episodes.map(e => ({ id: e.id, title: e.title, publishedTitle: e.published_title || null,
+      version: e.version, adminHidden: Boolean(e.admin_hidden), published: Boolean(e.job_id),
+      channelTitle: e.channel_data ? json(e.channel_data).title : 'No channel', channelSlug: e.channel_slug,
+      channelPublic: e.channel_slug ? Boolean(e.is_public) : true, ownerEmail: e.email, updatedAt: e.updated_at })));
+  }));
+  app.put('/api/admin/episodes/:id/visibility', requireAdmin, asyncRoute(async (req, res) => {
+    const id = z.uuid().parse(req.params.id);
+    const input = z.object({ hidden: z.boolean(), expectedHidden: z.boolean() }).parse(req.body);
+    await transaction(async connection => {
+      const [episode] = await rows('SELECT admin_hidden FROM episodes WHERE id = ? FOR UPDATE', [id], connection);
+      if (!episode) throw failure('Episode not found.', 404);
+      if (Boolean(episode.admin_hidden) !== input.expectedHidden) throw failure('Visibility changed. Refresh the list and try again.', 409);
+      await rows('UPDATE episodes SET admin_hidden = ? WHERE id = ?', [input.hidden, id], connection);
+    });
+    res.json({ ok: true });
+  }));
+  app.delete('/api/admin/episodes/:id', requireAdmin, asyncRoute(async (req, res) => {
+    const { version } = z.object({ version: z.number().int().positive() }).parse(req.body);
+    await deleteEpisode(z.uuid().parse(req.params.id), { version });
+    res.json({ ok: true });
+  }));
   app.get('/api/auth/me', (req, res) => res.json({ user: req.user, csrf: req.csrf }));
   app.post('/api/auth/password', rateLimit({ windowMs: 15 * 60000, limit: 10, standardHeaders: 'draft-8', legacyHeaders: false }), asyncRoute(async (req, res) => {
     const input = z.object({ currentPassword: z.string().min(1).max(200), newPassword: z.string().min(12).max(200), confirmPassword: z.string().min(12).max(200) }).parse(req.body);
@@ -161,22 +207,7 @@ export async function createApp({ serveStatic = true, stripeClient, commerceSett
     res.status(201).json(mapEpisode(episode));
   }));
   app.delete('/api/episodes/:id', asyncRoute(async (req, res) => {
-    const outputs = await transaction(async connection => {
-      const query = (sql, values) => rows(sql, values, connection);
-      const [episode] = await query('SELECT id FROM episodes WHERE id = ? AND user_id = ? FOR UPDATE', [req.params.id, req.user.id]);
-      if (!episode) throw failure('Episode not found.', 404);
-      const jobs = await query('SELECT output_key FROM render_jobs WHERE episode_id = ? FOR UPDATE', [episode.id]);
-      await query('DELETE FROM publications WHERE episode_id = ?', [episode.id]);
-      await query('DELETE FROM render_jobs WHERE episode_id = ?', [episode.id]);
-      await query('DELETE FROM episodes WHERE id = ?', [episode.id]);
-      return jobs.map(job => job.output_key).filter(Boolean);
-    });
-    // Originals may be shared by other episodes. Only remove this episode's
-    // exports from this server; running workers discard results for deleted jobs.
-    for (const key of outputs) {
-      try { await unlink(mediaFile(key)); }
-      catch (error) { if (error.code !== 'ENOENT') console.error('Could not remove deleted episode export:', error.code || error.message); }
-    }
+    await deleteEpisode(req.params.id, { ownerId: req.user.id });
     res.json({ ok: true });
   }));
   app.put('/api/episodes/:id', asyncRoute(async (req, res) => {

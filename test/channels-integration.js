@@ -4,7 +4,7 @@ import { mkdir } from 'node:fs/promises';
 import request from 'supertest';
 import { hashPassword } from '../server/auth.js';
 
-export async function testChannels({ createApp, rows, origin, fixture, claimJob, processJob }) {
+export async function testChannels({ createApp, rows, origin, fixture, claimJob, processJob, adminAgent, adminMutate }) {
   const app = await createApp();
   const password = `test-${randomUUID()}`;
   const authors = [];
@@ -73,6 +73,37 @@ export async function testChannels({ createApp, rows, origin, fixture, claimJob,
     assert.ok(response.text.includes(feedPath)); assert.match(response.text, /<itunes:author>Alice<\/itunes:author>/);
     assert.match(response.text, /<itunes:email>alice@podcast-owner.example<\/itunes:email>/);
   }
+  const adminPath = `/api/admin/episodes/${alice.episode.id}`;
+  assert.equal((await request(app).get('/api/admin/episodes')).status, 401);
+  assert.equal((await alice.agent.get('/api/admin/episodes')).status, 403);
+  assert.equal((await beth.mutate('put', `${adminPath}/visibility`).send({ hidden: true, expectedHidden: false })).status, 403);
+  assert.equal((await beth.mutate('delete', adminPath).send({ version: alice.episode.version })).status, 403);
+  assert.equal((await adminAgent.put(`${adminPath}/visibility`).set('Origin', origin).send({ hidden: true, expectedHidden: false })).status, 403);
+  assert.equal((await adminMutate('put', `${adminPath}/visibility`).send({ hidden: 'yes', expectedHidden: false })).status, 400);
+  assert.equal((await adminAgent.get('/api/admin/episodes')).body.some(e => e.id === alice.episode.id && e.ownerEmail === alice.email), true);
+  assert.equal((await adminMutate('put', `${adminPath}/visibility`).send({ hidden: true, expectedHidden: false })).status, 200);
+  assert.equal((await adminMutate('put', `${adminPath}/visibility`).send({ hidden: false, expectedHidden: false })).status, 409);
+  assert.equal((await alice.agent.get('/api/episodes')).body.find(e => e.id === alice.episode.id).adminHidden, true);
+  assert.equal((await request(app).get(`/api/public/episodes/${alice.episode.id}`)).status, 404);
+  assert.equal((await request(app).get(`/media/${alice.episode.id}/${alice.jobId}.mp3`).set('If-None-Match', mediaBeforePrivate.headers.etag)).status, 404);
+  assert.equal((await request(app).get('/api/public/episodes?channel=alice-family')).body.length, 0);
+  assert.equal((await request(app).get('/api/public/channels/alice-family')).body.series.length, 0);
+  for (const feedPath of ['/podcast/feed.xml', '/channels/alice-family/feed.xml', '/channels/alice-family/series/family-rhythms/feed.xml']) {
+    assert.equal((await request(app).get(feedPath)).text.includes('Alice episode'), false);
+  }
+  assert.equal((await alice.mutate('post', `/api/episodes/${alice.episode.id}/publish`).send({ jobId: alice.jobId })).status, 200);
+  assert.equal((await request(app).get(`/api/public/episodes/${alice.episode.id}`)).status, 404, 'Author republishing must not undo admin moderation');
+  assert.equal((await adminMutate('put', `${adminPath}/visibility`).send({ hidden: false, expectedHidden: true })).status, 200);
+  assert.equal((await request(app).get(`/api/public/episodes/${alice.episode.id}`)).status, 200);
+  const privateCreated = await alice.mutate('post', '/api/episodes');
+  assert.equal(privateCreated.status, 201, JSON.stringify(privateCreated.body));
+  const privateDraft = privateCreated.body;
+  assert.equal((await adminMutate('put', `/api/admin/episodes/${privateDraft.id}/visibility`).send({ hidden: true, expectedHidden: false })).status, 200);
+  const restoreDraft = await adminMutate('put', `/api/admin/episodes/${privateDraft.id}/visibility`).send({ hidden: false, expectedHidden: true });
+  assert.equal(restoreDraft.status, 200, JSON.stringify({ response: restoreDraft.body, draft: privateDraft.id, rows: await rows('SELECT id, admin_hidden FROM episodes WHERE id = ?', [privateDraft.id]) }));
+  assert.equal((await request(app).get(`/api/public/episodes/${privateDraft.id}`)).status, 404, 'Restoring a draft must not publish it');
+  assert.equal((await adminMutate('delete', `/api/admin/episodes/${privateDraft.id}`).send({ version: privateDraft.version + 1 })).status, 409);
+  assert.equal((await adminMutate('delete', `/api/admin/episodes/${privateDraft.id}`).send({ version: privateDraft.version })).status, 200);
   const nextSeries = (await alice.mutate('post', '/api/channel/series').send({ ...seriesBody, slug: 'new-series' })).body;
   const resaved = await alice.mutate('put', `/api/episodes/${alice.episode.id}`).send({ ...alice.episode, seriesId: nextSeries.id });
   assert.equal(resaved.status, 200);
@@ -158,6 +189,12 @@ export async function testChannels({ createApp, rows, origin, fixture, claimJob,
       assert.deepEqual(errors, []);
     } finally { await browser.close(); await new Promise(resolve => server.close(resolve)); config.origin = previousOrigin; }
   }
+  assert.equal((await adminMutate('delete', `/api/admin/episodes/${beth.episode.id}`).send({ version: beth.episode.version })).status, 200);
+  assert.equal((await request(app).get(`/api/public/episodes/${beth.episode.id}`)).status, 404);
+  assert.equal((await request(app).get(`/media/${beth.episode.id}/${beth.jobId}.mp3`)).status, 404);
+  assert.equal((await rows('SELECT id FROM render_jobs WHERE episode_id = ?', [beth.episode.id])).length, 0);
+  assert.ok((await beth.agent.get('/api/assets')).body.length, 'Admin deletion preserves original sources');
+  console.log('PASS: Admin cross-channel episode visibility/deletion, publisher and CSRF protection, hidden RSS/media protection, republish moderation, safe draft restoration and stale deletion prevention.');
   // Remove these isolated author publications so the remaining suite uses its original fixtures.
   for (const author of authors) await author.mutate('post', `/api/episodes/${author.episode.id}/unpublish`);
   console.log('PASS: Author-owned profiles/channels/series, publisher branding access, isolated series assignment, publication snapshots, private-channel media/RSS protection, channel/series RSS and mobile author pages.');

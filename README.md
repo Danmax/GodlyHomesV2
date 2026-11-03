@@ -34,6 +34,8 @@ For a local production build, `npm run build`, set `APP_URL` to your served orig
 
 ### Website Admin
 
+**Website Admin → Podcast episodes** lists drafts and published episodes across all authors and channels. Search by title, channel, or author email, and filter public, hidden, or draft episodes. **Hide episode** removes public page/API, RSS, and audio access while retaining the draft and renders; author republishing cannot override this setting. **Restore visibility** exposes an existing publication only when its channel is public, and never publishes a draft. **Delete episode** requires confirmation and permanently removes the draft, publication, and render jobs/exports while preserving original recordings used by other episodes. External podcast apps may retain downloads or cached feed entries. Apply migration `009_episode_visibility.sql` before deploying this version.
+
 Run migrations before upgrading the application. Migration `002_website_admin.sql` adds admin/publisher roles and website content tables. Migration `004_reflexions.sql` converts the public Resource area to Reflexions and saves the earlier internal guides as private drafts so their external links and images can be added in Website Admin. Existing accounts default to podcast publisher access.
 
 To give the configured owner account website editing access, set `ADMIN_EMAIL` to that existing account and run `npm run admin:grant`. This changes only that account's role and preserves its credentials. New accounts created by `npm run admin:create` have the admin role. Admin access is checked from MySQL on every private request; being signed in as a publisher is insufficient.

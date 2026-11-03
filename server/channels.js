@@ -67,6 +67,6 @@ publicChannels.get('/:slug', route(async (req, res) => {
   const [channel] = await rows('SELECT user_id, slug, data FROM podcast_channels WHERE slug = ? AND is_public = TRUE', [channelSlug.parse(req.params.slug)]);
   if (!channel) throw fail('Channel not found.', 404);
   const series = await rows(`SELECT s.* FROM podcast_series s WHERE s.user_id = ? AND EXISTS
-    (SELECT 1 FROM publications p JOIN episodes e ON e.id = p.episode_id WHERE p.series_id = s.id AND e.user_id = s.user_id) ORDER BY s.updated_at DESC`, [channel.user_id]);
+    (SELECT 1 FROM publications p JOIN episodes e ON e.id = p.episode_id WHERE p.series_id = s.id AND e.user_id = s.user_id AND e.admin_hidden = FALSE) ORDER BY s.updated_at DESC`, [channel.user_id]);
   res.json({ slug: channel.slug, ...json(channel.data), series: series.map(item => ({ id: item.id, slug: item.slug, ...json(item.data) })) });
 }));
