@@ -104,6 +104,12 @@ audio { width: 100%; margin-top: 14px; }
 /* Public pages */
 .public-site { color: #2f2b27; background: #fbf7f1; }
 .site-container { width: min(1216px, calc(100% - 56px)); margin-inline: auto; }
+.site-announcement { position: relative; z-index: 31; background: #55644c; color: #fbf7f1; font-size: 13px; }
+.site-announcement-inner { max-width: 1280px; min-height: 38px; padding: 8px 48px 8px 28px; margin: auto; display: flex; justify-content: center; align-items: center; gap: 10px; position: relative; }
+.site-announcement p { margin: 0; text-align: center; }
+.site-announcement a { color: inherit; font-weight: 700; text-decoration: underline; text-underline-offset: 4px; }
+.site-announcement button { position: absolute; right: 20px; border: 0; background: transparent; color: inherit; cursor: pointer; padding: 6px; opacity: .85; }
+.site-announcement button:hover { opacity: 1; }
 .site-header { position: sticky; top: 0; z-index: 30; background: #fbf7f1f2; border-bottom: 1px solid #e6dacb; backdrop-filter: blur(16px); }
 .site-header-inner { max-width: 1280px; min-height: 112px; padding: 0 28px; margin: auto; display: flex; align-items: center; gap: 28px; }
 .desktop-nav { display: flex; align-items: center; gap: 25px; margin-left: auto; }

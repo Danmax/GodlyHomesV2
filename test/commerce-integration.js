@@ -11,12 +11,18 @@ export async function testCommerce({ createApp, rows, origin, password }) {
   const webhookSecret = 'whsec_isolated_integration';
   const product = { id: 'prod_integration', active: true, name: 'Family journal', description: 'A journal for families.', images: [], shippable: null };
   const price = { id: 'price_integration', active: true, type: 'one_time', unit_amount: 1200, currency: 'usd', livemode: false, product };
-  const sessions = new Map(), calls = [];
+  const sessions = new Map(), calls = [], promotionCodes = [], coupons = new Map();
   let failCreation = false, shippingCurrency = 'usd';
   const stripeClient = {
     webhooks: sdk.webhooks,
     accounts: { retrieve: async () => ({ charges_enabled: true, business_profile: { name: 'Integration store' } }) },
     prices: { retrieve: async () => structuredClone(price), list: async () => ({ data: [price, { ...price, id: 'price_recurring', type: 'recurring' }], has_more: false }) },
+    coupons: { create: async input => { const coupon = { id: `coupon_${randomUUID()}`, percent_off: input.percent_off ?? null, amount_off: input.amount_off ?? null, currency: input.currency ?? null }; coupons.set(coupon.id, coupon); return structuredClone(coupon); }, del: async () => ({ deleted: true }) },
+    promotionCodes: {
+      list: async () => ({ data: structuredClone(promotionCodes), has_more: false }),
+      create: async input => { const coupon = typeof input.promotion.coupon === 'string' ? coupons.get(input.promotion.coupon) : input.promotion.coupon; const created = { id: `promo_${randomUUID()}`, code: input.code, active: true, created: Math.floor(Date.now() / 1000), max_redemptions: input.max_redemptions || null, times_redeemed: 0, expires_at: input.expires_at || null, promotion: { coupon } }; promotionCodes.push(created); return structuredClone(created); },
+      update: async (id, input) => { const item = promotionCodes.find(code => code.id === id); Object.assign(item, input); return structuredClone(item); },
+    },
     shippingRates: { retrieve: async id => ({ id, active: true, type: 'fixed_amount', livemode: false, fixed_amount: { amount: 500, currency: shippingCurrency } }), list: async () => ({ data: [], has_more: false }) },
     checkout: { sessions: {
       create: async (params, options) => {
@@ -36,7 +42,7 @@ export async function testCommerce({ createApp, rows, origin, password }) {
   const other = await publisher.post('/api/auth/login').set('Origin', origin).send({ email: 'other@godlyhomes.com', password });
   const mutate = (method, url) => admin[method](url).set('Origin', origin).set('X-CSRF-Token', login.body.csrf);
   assert.equal((await request(app).get('/api/admin/commerce/orders')).status, 401);
-  for (const endpoint of ['catalog', 'orders', 'status', 'shipping-rates']) assert.equal((await publisher.get(`/api/admin/commerce/${endpoint}`)).status, 403);
+  for (const endpoint of ['catalog', 'orders', 'status', 'shipping-rates', 'discounts']) assert.equal((await publisher.get(`/api/admin/commerce/${endpoint}`)).status, 403);
   assert.equal((await publisher.post('/api/admin/commerce/import').set('Origin', origin).set('X-CSRF-Token', other.body.csrf).send({ priceId: price.id, kind: 'digital' })).status, 403);
   assert.equal((await admin.post('/api/admin/commerce/import').set('Origin', origin).send({ priceId: price.id, kind: 'digital' })).status, 403);
   const status = await admin.get('/api/admin/commerce/status'); assert.equal(status.status, 200); assert.equal(status.body.webhookConfigured, true);
@@ -59,6 +65,12 @@ export async function testCommerce({ createApp, rows, origin, password }) {
   assert.equal(restrictedKey.status, 200); assert.equal(restrictedKey.body.connected, true); assert.equal(restrictedKey.body.account, null); assert.ok(restrictedKey.body.accountWarning);
   stripeClient.accounts.retrieve = retrieveAccount;
   assert.equal((await admin.get('/api/admin/commerce/catalog')).body.items.length, 1);
+  const promotion = await mutate('post', '/api/admin/commerce/discounts').send({ code: 'FAMILY10', percentOff: 10, amountOff: null, currency: 'USD', maxRedemptions: 25, expiresAt: new Date(Date.now() + 86400000).toISOString() });
+  assert.equal(promotion.status, 201, JSON.stringify(promotion.body));
+  const promotions = await admin.get('/api/admin/commerce/discounts');
+  assert.equal(promotions.status, 200); assert.equal(promotions.body.items[0].code, 'FAMILY10'); assert.equal(promotions.body.items[0].percentOff, 10);
+  assert.equal((await mutate('post', `/api/admin/commerce/discounts/${promotion.body.id}/deactivate`).send({})).status, 200);
+  assert.equal((await mutate('post', '/api/admin/commerce/discounts').send({ code: 'BAD', percentOff: 10, amountOff: 100, currency: 'USD', maxRedemptions: null, expiresAt: null })).status, 400);
   const imported = await mutate('post', '/api/admin/commerce/import').send({ priceId: price.id, kind: 'digital' });
   assert.equal(imported.status, 201, JSON.stringify(imported.body));
   const again = await mutate('post', '/api/admin/commerce/import').send({ priceId: price.id, kind: 'physical' });
@@ -74,7 +86,7 @@ export async function testCommerce({ createApp, rows, origin, password }) {
   assert.equal((await buy({ priceCents: 1, stripePriceId: 'price_attacker', quantity: 100 })).status, 201);
   const { params, options } = calls.at(-1);
   assert.deepEqual(params.line_items, [{ price: price.id, quantity: 1 }]);
-  assert.equal(params.automatic_tax.enabled, false); assert.equal(params.shipping_options, undefined);
+  assert.equal(params.automatic_tax.enabled, false); assert.equal(params.allow_promotion_codes, true); assert.equal(params.shipping_options, undefined);
   assert.match(options.idempotencyKey, /godly-homes-order-/);
   const success = new URL(params.success_url), orderId = success.searchParams.get('order'), token = success.searchParams.get('token');
   assert.equal(success.origin, origin);

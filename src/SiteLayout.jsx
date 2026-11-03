@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Menu, X, ArrowUpRight } from 'lucide-react';
+import { Menu, X, ArrowUpRight, Heart } from 'lucide-react';
 import Logo from './Logo.jsx';
 import { useSiteContent } from './SiteContent.jsx';
 
@@ -30,6 +30,13 @@ export function Header() {
   </header>;
 }
 
+function Announcement() {
+  const { documents: { home } } = useSiteContent();
+  const [open, setOpen] = useState(true);
+  if (!open || !home.announcementEnabled) return null;
+  return <div className="site-announcement" role="region" aria-label="Current announcement"><div className="site-announcement-inner"><Heart size={14} aria-hidden="true" /><p>{home.announcementText} <a href={home.announcementHref}>{home.announcementLabel}</a></p><button type="button" onClick={() => setOpen(false)} aria-label="Dismiss announcement"><X size={16} /></button></div></div>;
+}
+
 export function Footer() {
   const { documents: { site } } = useSiteContent();
   const links = site.navigation.map(item => [item.label, item.href]);
@@ -42,6 +49,6 @@ export function Footer() {
   </div></footer>;
 }
 
-export default function SiteLayout({ children, announcement }) {
-  return <div className="gh public-site"><a className="skip-link" href="#main-content">Skip to content</a>{announcement}<Header /><main id="main-content">{children}</main><Footer /></div>;
+export default function SiteLayout({ children }) {
+  return <div className="gh public-site"><a className="skip-link" href="#main-content">Skip to content</a><Announcement /><Header /><main id="main-content">{children}</main><Footer /></div>;
 }

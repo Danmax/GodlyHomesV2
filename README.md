@@ -42,6 +42,8 @@ Sign in at `/studio` and choose **Website Admin**, or open `/admin`. Page/settin
 
 Images accept PNG, JPEG and WebP up to 5 MB and use persistent media storage. A local admin configured with `MEDIA_REMOTE_URL` forwards uploads to the hosted site using the same authenticated session. Products can use the Stripe integration below or an external HTTPS checkout link. Products without either offer a contact action. Email signup editing changes the form copy, not email delivery configuration.
 
+The Homepage announcement is displayed across every public page. Use it for a current promotion or update; its text, link label, destination, and visibility are managed in **Website Admin → Homepage**. In **Website Admin → Discount codes**, create percentage or fixed-amount Stripe promotion codes. Stripe Checkout collects the code securely; the server never receives or stores a shopper-entered code. Restricted Stripe keys need read/write access to Coupons and Promotion Codes in addition to the existing Products, Prices, Checkout Sessions, and Shipping Rates permissions.
+
 ## Stripe store and orders
 
 Run `npm run db:migrate` to apply additive migration `003_store_orders.sql`. The site uses the official Stripe Node SDK and Stripe-hosted Checkout; card details never pass through this app. Set server-only `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` in Hostinger's Node.js environment settings, then restart/redeploy. Never expose them with a `VITE_` prefix or commit them. Use sandbox keys and products to verify the flow first; the Stripe plugin connection does not configure the website's runtime keys.

@@ -14,6 +14,18 @@ const currencies = ['usd', 'cad', 'eur', 'gbp', 'aud'];
 const events = ['checkout.session.completed', 'checkout.session.async_payment_succeeded', 'checkout.session.async_payment_failed', 'checkout.session.expired'];
 const idSchema = z.string().uuid();
 const priceSchema = z.string().regex(/^price_[A-Za-z0-9]+$/).max(255);
+const promotionCodeSchema = z.string().trim().toUpperCase().regex(/^[A-Z0-9][A-Z0-9_-]{2,39}$/, 'Use 3–40 uppercase letters, numbers, hyphens, or underscores.');
+const discountSchema = z.object({
+  code: promotionCodeSchema,
+  percentOff: z.number().int().min(1).max(100).nullable(),
+  amountOff: z.number().int().min(1).max(99999999).nullable(),
+  currency: z.enum(['USD', 'CAD', 'EUR', 'GBP', 'AUD']),
+  maxRedemptions: z.number().int().min(1).max(100000).nullable(),
+  expiresAt: z.string().datetime().nullable(),
+}).superRefine((value, context) => {
+  if ((value.percentOff === null) === (value.amountOff === null)) context.addIssue({ code: z.ZodIssueCode.custom, message: 'Choose either a percentage or a fixed discount.' });
+  if (value.expiresAt && Date.parse(value.expiresAt) <= Date.now()) context.addIssue({ code: z.ZodIssueCode.custom, message: 'The expiration must be in the future.' });
+});
 const slugify = value => value.toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 110) || 'stripe-item';
 const usablePrice = price => price.active && price.type === 'one_time' && Number.isSafeInteger(price.unit_amount)
   && price.unit_amount >= 0 && price.unit_amount <= 99999999 && currencies.includes(price.currency)
@@ -91,7 +103,7 @@ export function createCommerce({ stripeClient, settings = commerceSettings() } =
         metadata: { source: 'godly_homes', orderId: id },
         success_url: `${config.origin}/checkout?order=${id}&token=${token}`,
         cancel_url: `${config.origin}/store/${item.slug}?checkout=cancelled`,
-        automatic_tax: { enabled: settings.automaticTax }, ...shipping,
+        automatic_tax: { enabled: settings.automaticTax }, allow_promotion_codes: true, ...shipping,
       }, { idempotencyKey: `godly-homes-order-${id}` }));
     } catch (error) {
       // A network timeout may still have created a Stripe Session. A later
@@ -148,6 +160,37 @@ export function createCommerce({ stripeClient, settings = commerceSettings() } =
   adminRoutes.get('/shipping-rates', route(async (_req, res) => {
     const page = await stripeCall(client => client.shippingRates.list({ active: true, limit: 100 }));
     res.json({ items: page.data.filter(rate => rate.type === 'fixed_amount').map(rate => ({ id: rate.id, name: rate.display_name, amount: rate.fixed_amount.amount, currency: rate.fixed_amount.currency.toUpperCase() })), hasMore: page.has_more });
+  }));
+  adminRoutes.get('/discounts', route(async (_req, res) => {
+    const page = await stripeCall(client => client.promotionCodes.list({ limit: 100, expand: ['data.promotion.coupon'] }));
+    res.json({ items: page.data.map(promotion => {
+      const coupon = promotion.promotion?.coupon || promotion.coupon;
+      return { id: promotion.id, code: promotion.code, active: promotion.active, createdAt: promotion.created * 1000,
+        maxRedemptions: promotion.max_redemptions, timesRedeemed: promotion.times_redeemed,
+        expiresAt: promotion.expires_at ? promotion.expires_at * 1000 : null,
+        percentOff: coupon?.percent_off ?? null, amountOff: coupon?.amount_off ?? null, currency: coupon?.currency?.toUpperCase() || null };
+    }) });
+  }));
+  adminRoutes.post('/discounts', route(async (req, res) => {
+    const input = discountSchema.parse(req.body);
+    const coupon = await stripeCall(client => client.coupons.create(input.percentOff !== null
+      ? { percent_off: input.percentOff, duration: 'once', name: input.code }
+      : { amount_off: input.amountOff, currency: input.currency.toLowerCase(), duration: 'once', name: input.code }));
+    try {
+      const promotion = await stripeCall(client => client.promotionCodes.create({ promotion: { type: 'coupon', coupon: coupon.id }, code: input.code,
+        ...(input.maxRedemptions ? { max_redemptions: input.maxRedemptions } : {}),
+        ...(input.expiresAt ? { expires_at: Math.floor(Date.parse(input.expiresAt) / 1000) } : {}) }));
+      res.status(201).json({ id: promotion.id, code: promotion.code });
+    } catch (error) {
+      // Avoid orphaned coupons when promotion-code creation fails.
+      await stripeCall(client => client.coupons.del(coupon.id)).catch(() => {});
+      throw error;
+    }
+  }));
+  adminRoutes.post('/discounts/:id/deactivate', route(async (req, res) => {
+    const id = z.string().regex(/^promo_[A-Za-z0-9]+$/).max(255).parse(req.params.id);
+    await stripeCall(client => client.promotionCodes.update(id, { active: false }));
+    res.json({ ok: true });
   }));
   adminRoutes.post('/import', route(async (req, res) => {
     const { priceId, kind } = z.object({ priceId: priceSchema, kind: z.enum(['digital', 'physical']) }).parse(req.body);

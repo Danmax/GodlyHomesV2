@@ -36,6 +36,7 @@ try {
     for (const [route, title] of [['/about', 'About'], ['/resources', 'Reflexions'], ['/store', 'Store']]) {
       await page.goto(`${origin}${route}`);
       await page.getByRole('heading', { level: 1 }).waitFor();
+      await page.getByRole('region', { name: 'Current announcement' }).waitFor();
       await page.waitForFunction(title => document.title.startsWith(title), title);
       await page.locator('.site-logo img').first().evaluate(img => img.decode());
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, `Overflow: ${route} at ${width}`);

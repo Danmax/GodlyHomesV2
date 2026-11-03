@@ -4,7 +4,7 @@ import { useSiteContent } from './SiteContent.jsx';
 import { ResourceCard } from './ContentPages.jsx';
 import { useState } from "react";
 import {
-  Search, Menu, X, Play, Pause, SkipBack, SkipForward, BookOpen, Home,
+  Search, Menu, Play, Pause, SkipBack, SkipForward, BookOpen, Home,
   Mic, Users, Instagram, Youtube, Facebook, Mail, Check, Heart, Download,
 } from "lucide-react";
 
@@ -86,26 +86,6 @@ const PILLARS = [
 ];
 
 /* ---------- Sections ---------- */
-function Announcement() {
-  const { documents: { home } } = useSiteContent();
-  const [open, setOpen] = useState(true);
-  if (!open || !home.announcementEnabled) return null;
-  return (
-    <div className="text-sm" style={{ background: T.sageDeep, color: T.cream }}>
-      <div className="max-w-7xl mx-auto px-5 py-2 flex items-center justify-center gap-3 relative">
-        <Heart size={14} />
-        <p className="text-center">
-          {home.announcementText}{" "}
-          <a href={home.announcementHref} className="underline underline-offset-4 font-semibold">{home.announcementLabel}</a>
-        </p>
-        <button onClick={() => setOpen(false)} aria-label="Dismiss announcement" className="absolute right-4 opacity-80 hover:opacity-100">
-          <X size={16} />
-        </button>
-      </div>
-    </div>
-  );
-}
-
 function Hero() {
   const { documents: { home } } = useSiteContent();
   return (
@@ -201,7 +181,7 @@ export default function GodlyHomesHomepage() {
   return (
     <>
       <Styles />
-      <SiteLayout announcement={<Announcement />}>
+      <SiteLayout>
         <Hero />
         <Pillars />
         <Podcast />
