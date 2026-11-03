@@ -20,7 +20,22 @@ const usablePrice = price => price.active && price.type === 'one_time' && Number
   && price.product && typeof price.product !== 'string' && !price.product.deleted && price.product.active;
 
 export function commerceSettings() {
-  return { secretKey: process.env.STRIPE_SECRET_KEY || '', webhookSecret: process.env.STRIPE_WEBHOOK_SECRET || '', automaticTax: process.env.STRIPE_AUTOMATIC_TAX === 'true' };
+  return { secretKey: (process.env.STRIPE_SECRET_KEY || '').trim(), webhookSecret: (process.env.STRIPE_WEBHOOK_SECRET || '').trim(), automaticTax: process.env.STRIPE_AUTOMATIC_TAX === 'true' };
+}
+
+function connectionFailure(error) {
+  // Stripe error messages can contain the submitted key. Return only our own
+  // diagnostics, never the upstream message, headers or request configuration.
+  if (error.type === 'StripeAuthenticationError' || error.statusCode === 401) return {
+    code: 'authentication_failed', message: 'Stripe rejected the server API key. Replace STRIPE_SECRET_KEY in Hostinger with a valid secret or restricted API key for this account, then restart the app. Do not use a publishable key or webhook signing secret.',
+  };
+  if (error.type === 'StripePermissionError' || error.statusCode === 403) return {
+    code: 'permission_denied', message: 'The Stripe key does not allow catalog access. Give this restricted key read access to Prices and Products, then retry.',
+  };
+  if (error.type === 'StripeRateLimitError' || error.statusCode === 429) return {
+    code: 'rate_limited', message: 'Stripe is limiting requests. Wait a moment and refresh the connection.',
+  };
+  return { code: 'connection_failed', message: 'Stripe could not be reached or checked. Retry, and check the server connection and Stripe account configuration if it continues.' };
 }
 
 export function createCommerce({ stripeClient, settings = commerceSettings() } = {}) {
@@ -101,10 +116,28 @@ export function createCommerce({ stripeClient, settings = commerceSettings() } =
 
   adminRoutes.use(requireAdmin);
   adminRoutes.get('/status', route(async (_req, res) => {
-    let account = null;
-    if (stripe) { const connected = await stripeCall(client => client.accounts.retrieve(null)); account = { name: connected.business_profile?.name || connected.settings?.dashboard?.display_name || 'Stripe account', chargesEnabled: connected.charges_enabled }; }
+    let account = null, connected = false, connectionError = null, accountWarning = null;
+    if (stripe) {
+      try {
+        // Verify the capability this page needs. Account details are optional:
+        // restricted keys can read the catalog without access to /v1/account.
+        await stripe.prices.list({ active: true, limit: 1, expand: ['data.product'] }, { timeout: 8000, maxNetworkRetries: 0 });
+        connected = true;
+      } catch (error) {
+        console.error('Stripe connection check failed:', error.type || 'connection_error');
+        connectionError = connectionFailure(error);
+      }
+      if (connected) {
+        try {
+          const details = await stripe.accounts.retrieve(null, {}, { timeout: 8000, maxNetworkRetries: 0 });
+          account = { name: details.business_profile?.name || details.settings?.dashboard?.display_name || 'Stripe account', chargesEnabled: details.charges_enabled };
+        } catch {
+          accountWarning = 'Catalog access is verified, but account details could not be checked. You can manage products here and check payment readiness in the Stripe Dashboard.';
+        }
+      }
+    }
     const [last] = await rows('SELECT processed_at FROM stripe_webhook_events ORDER BY processed_at DESC LIMIT 1');
-    res.json({ configured: Boolean(stripe), webhookConfigured: Boolean(settings.webhookSecret), automaticTax: settings.automaticTax, account,
+    res.json({ configured: Boolean(stripe), connected, connectionError, accountWarning, webhookConfigured: Boolean(settings.webhookSecret), automaticTax: settings.automaticTax, account,
       webhookUrl: `${config.origin}/api/stripe/webhook`, events, lastWebhookAt: last?.processed_at || null });
   }));
   adminRoutes.get('/catalog', route(async (req, res) => {
