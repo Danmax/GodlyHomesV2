@@ -307,3 +307,9 @@ audio { width: 100%; margin-top: 14px; }
 .commerce-order summary { cursor: pointer; overflow-wrap: anywhere; }
 .commerce-order[open] summary { margin-bottom: 1.25rem; }
 .commerce-order label { display: block; }
+.podcast-subscribe { margin-top: 24px; }
+.spotify-link { background: #000; color: #fff; border-color: #000; text-align: left; }
+.spotify-link:hover { background: #191414; border-color: #191414; }
+.spotify-link img { width: 28px; height: 28px; object-fit: contain; flex-shrink: 0; }
+.spotify-link strong { display: block; font-size: 14px; }
+.spotify-show-name { display: block; font-size: 11px; font-weight: 400; margin-top: 2px; }
