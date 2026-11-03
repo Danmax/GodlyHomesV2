@@ -9,7 +9,7 @@ Solo podcast recording and publishing for **godlyhomes.com**. The original two J
 - Private studio accounts, scrypt password hashes, database-backed sessions, origin/CSRF checks and per-user ownership.
 - MySQL episode drafts with debounced autosave, explicit save, revision conflicts and undo during an editing session.
 - Solo microphone capture, input meter, pause/resume, local IndexedDB chunk backups and recovery/download after interruption or upload failure.
-- Audio import, source preview/waveform for smaller files, trim/split/reorder, fades, gain and optional looping music with voice ducking.
+- Audio import, source preview/waveform for smaller files, playhead trimming, range cuts, split/reorder, fades, gain and optional looping music with voice ducking. Reuse library audio as intro, segment, musical transition, or closing clips.
 - Durable background render jobs with leases, heartbeat, interrupted-job recovery, FFmpeg two-pass loudness normalization, MP3 review and explicit publishing.
 - Published versions remain unchanged during later draft edits. Unpublishing removes the public player/feed access.
 - Episode owners can delete a draft or published episode from the list or editor after confirmation. Deletion removes the episode, its publication and render jobs; original/shared source audio remains available. Queued jobs are removed and running workers discard results for deleted jobs.
@@ -41,6 +41,10 @@ To give the configured owner account website editing access, set `ADMIN_EMAIL` t
 Sign in at `/studio` and choose **Website Admin**, or open `/admin`. Page/settings forms use **Save and publish**. Each Reflexion has a title, short description, type, image, image description and HTTPS external URL; published links open in a new tab. Reflexion/store drafts are excluded from public APIs and pages. Version checks prevent an old browser tab from overwriting a newer edit. Text is rendered as plain text with line breaks rather than executable HTML.
 
 Images accept PNG, JPEG and WebP up to 5 MB and use persistent media storage. A local admin configured with `MEDIA_REMOTE_URL` forwards uploads to the hosted site using the same authenticated session. Products can use the Stripe integration below or an external HTTPS checkout link. Products without either offer a contact action. Email signup editing changes the form copy, not email delivery configuration.
+
+In **Studio → Arrange & edit**, select a clip to trim its boundaries, split at the playhead, or remove a range from its middle. Source recordings remain intact, and Undo restores an edit. The audio library adds intros first, closings last, and musical transitions after the selected clip. Transitions are separate music clips with adjustable trim, fades, and gain. Render the episode to hear all clips and background music together before publishing.
+
+**Website Admin → Podcast branding** controls the show title, description, cover artwork, and author spotlight (name, biography, portrait, and profile link). Show branding appears on the homepage podcast section and episode pages, and title/description/artwork/author are included in RSS. Apply migration `006_podcast_branding.sql` before opening this settings page on an existing installation. The spotlight is hidden until enabled with an author name and biography.
 
 The Homepage announcement is displayed across every public page. Use it for a current promotion or update; its text, link label, destination, and visibility are managed in **Website Admin → Homepage**. In **Website Admin → Discount codes**, create percentage or fixed-amount Stripe promotion codes. Stripe Checkout collects the code securely; the server never receives or stores a shopper-entered code. Restricted Stripe keys need read/write access to Coupons and Promotion Codes in addition to the existing Products, Prices, Checkout Sessions, and Shipping Rates permissions.
 

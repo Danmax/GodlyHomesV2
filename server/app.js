@@ -71,7 +71,8 @@ export async function createApp({ serveStatic = true, stripeClient, commerceSett
     res.json(episodes.map(e => ({ id: e.episode_id, title: e.title, description: e.description, number: e.episode_number, duration: e.duration, publishedAt: e.published_at, url: `/media/${e.episode_id}/${e.job_id}.mp3` })));
   }));
   app.get('/podcast/feed.xml', asyncRoute(async (_req, res) => {
-    res.type('application/rss+xml').send(feed(await rows(`${publicQuery} ORDER BY p.published_at DESC`), config.origin));
+    const [branding] = await rows("SELECT data FROM website_documents WHERE document_key = 'podcast'");
+    res.type('application/rss+xml').send(feed(await rows(`${publicQuery} ORDER BY p.published_at DESC`), config.origin, branding ? json(branding.data) : {}));
   }));
   app.get('/media/:episodeId/:file', asyncRoute(async (req, res) => {
     const [publication] = await rows(`${publicQuery} WHERE p.episode_id = ?`, [req.params.episodeId]);

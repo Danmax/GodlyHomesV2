@@ -89,6 +89,18 @@ audio { width: 100%; margin-top: 14px; }
 .notes { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.8; color: #5a534c; }
 .fatal { max-width: 600px; margin: 80px auto; padding: 30px; }
 .password-card { max-width: 620px; margin: 0 0 28px; }
+.clip-editor input[type=range] { width: 100%; }
+.clip-editor .row { flex-wrap: wrap; }
+.clip-editor fieldset { min-width: 0; border: 1px solid #e6dacb; border-radius: 12px; padding: 16px; }
+.podcast-branding { margin-top: 28px; }
+.podcast-show-brand, .podcast-author { display: flex; align-items: start; gap: 18px; }
+.podcast-show-brand > div, .podcast-author > div { min-width: 0; }
+.podcast-cover { width: 110px; aspect-ratio: 1; object-fit: cover; border-radius: 14px; }
+.podcast-author img { width: 72px; height: 72px; object-fit: cover; border-radius: 50%; }
+.author-spotlight { margin-top: 20px; }
+.podcast-branding h3 { margin: 0 0 10px; }
+.podcast-branding p { overflow-wrap: anywhere; }
+@media(max-width: 480px) { .podcast-show-brand, .podcast-author { flex-direction: column; } }
 @keyframes breathe { 50% { box-shadow: 0 0 0 18px #f1dcd280; } }
 @media(max-width: 800px) { .workspace { grid-template-columns: 1fr; } .studio-header-inner { padding: 14px 18px; gap: 14px; } .studio-main { padding: 30px 18px 60px; } .user-email { display: none; } .brand { font-size: 24px; } .card { padding: 20px; } .episode-card { gap: 14px; } .tabs button { padding: 10px 12px; } .tabs { width: 100%; justify-content: center; } }
 @media(prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }

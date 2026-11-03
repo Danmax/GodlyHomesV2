@@ -8,6 +8,10 @@ export const safeHref = z.string().max(2000).refine(value => {
 }, 'Use a website path starting with / or a full HTTPS address.');
 export const imageUrl = z.union([z.literal(''), safeHref]);
 export const documentSchemas = {
+  podcast: z.object({ title: short, description: copy, coverUrl: imageUrl, coverAlt: short,
+    authorName: z.string().trim().max(200), authorBio: z.string().trim().max(4000), authorImageUrl: imageUrl,
+    authorLink: z.union([z.literal(''), safeHref]), spotlightEnabled: z.boolean(),
+  }).refine(data => !data.spotlightEnabled || (data.authorName.length > 0 && data.authorBio.length > 0), 'Add the author name and biography before enabling the spotlight.'),
   site: z.object({ name: short, tagline: short, email: z.email().max(254), logoUrl: imageUrl, logoAlt: short, footerText: copy, navigation: z.array(z.object({ label: z.string().trim().min(1).max(30), href: safeHref })).min(1).max(6) }),
   home: z.object({ title: short, description: copy, primaryLabel: short, primaryHref: safeHref, secondaryLabel: short, secondaryHref: safeHref, announcementEnabled: z.boolean(), announcementText: short, announcementLabel: short, announcementHref: safeHref, podcastTitle: short, podcastDescription: copy }),
   about: z.object({ eyebrow: short, title: short, description: copy, illustrationText: short, illustrationCaption: short, missionLabel: short, missionTitle: short, missionParagraphs: z.array(copy).min(1).max(10), valuesTitle: short, values: z.array(z.object({ title: short, body: copy })).min(1).max(8), connectTitle: short, connectText: copy, contactTitle: short, contactText: copy }),

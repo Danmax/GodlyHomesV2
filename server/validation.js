@@ -1,9 +1,11 @@
 import { z } from 'zod';
+import { clipRoles } from '../shared/podcast-editing.js';
 
 const segment = z.object({
   id: z.uuid(), assetId: z.uuid(), name: z.string().trim().min(1).max(200),
   start: z.number().min(0).max(7200), end: z.number().positive().max(7200),
   gain: z.number().min(0).max(2), fadeIn: z.number().min(0).max(5), fadeOut: z.number().min(0).max(5),
+  role: z.enum(clipRoles).optional().default('segment'),
 }).refine(s => s.end - s.start >= 0.05, 'Each segment must be at least 0.05 seconds.');
 export const arrangementSchema = z.object({
   segments: z.array(segment).max(200),

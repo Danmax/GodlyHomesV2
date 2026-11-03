@@ -1,13 +1,14 @@
 export const xml = value => String(value ?? '').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
-export function feed(episodes, origin) {
-  const title = xml(process.env.SHOW_TITLE || 'Godly Homes');
-  const description = xml(process.env.SHOW_DESCRIPTION || 'Encouragement for the home you are building.');
-  const image = process.env.SHOW_IMAGE_URL;
+export function feed(episodes, origin, branding = {}) {
+  const title = xml(branding.title || process.env.SHOW_TITLE || 'Godly Homes');
+  const description = xml(branding.description || process.env.SHOW_DESCRIPTION || 'Encouragement for the home you are building.');
+  const image = branding.coverUrl ? new URL(branding.coverUrl, origin).href : process.env.SHOW_IMAGE_URL;
+  const author = xml(branding.authorName || branding.title || process.env.SHOW_TITLE || 'Godly Homes');
   return `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd" xmlns:atom="http://www.w3.org/2005/Atom"><channel>
 <title>${title}</title><link>${xml(origin)}</link><description>${description}</description><language>en-us</language>
 <atom:link href="${xml(origin)}/podcast/feed.xml" rel="self" type="application/rss+xml"/>
-<itunes:author>${title}</itunes:author><itunes:explicit>false</itunes:explicit><itunes:type>episodic</itunes:type>
+<itunes:author>${author}</itunes:author><itunes:explicit>false</itunes:explicit><itunes:type>episodic</itunes:type>
 <itunes:owner><itunes:name>${title}</itunes:name><itunes:email>${xml(process.env.SHOW_EMAIL || 'hello@godlyhomes.com')}</itunes:email></itunes:owner>
 <itunes:category text="Religion &amp; Spirituality"><itunes:category text="Christianity"/></itunes:category>
 ${image ? `<itunes:image href="${xml(image)}"/>` : ''}

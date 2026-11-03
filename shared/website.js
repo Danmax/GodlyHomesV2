@@ -1,4 +1,9 @@
 export const defaultDocuments = {
+  podcast: {
+    title: 'Ministry and Motherhood', description: 'Conversations about faith, family, and building a home with intention.',
+    coverUrl: '', coverAlt: 'Ministry and Motherhood podcast artwork',
+    authorName: '', authorBio: '', authorImageUrl: '', authorLink: '', spotlightEnabled: false,
+  },
   site: {
     name: 'Godly Homes', tagline: 'Peace for the home you’re building.', email: 'hello@godlyhomes.com',
     logoUrl: '', logoAlt: 'Godly Homes — Family, Motherhood, Ministry',

@@ -8,6 +8,7 @@ import CommerceAdmin from './CommerceAdmin.jsx';
 const sections = [
   { id: 'about', label: 'About page', icon: FileText, document: 'about', href: '/about' },
   { id: 'home', label: 'Homepage', icon: Home, document: 'home', href: '/' },
+  { id: 'podcast', label: 'Podcast branding', icon: Image, document: 'podcast', href: '/#podcast' },
   { id: 'library', label: 'Reflexions', icon: BookOpen, kind: 'resource', href: '/resources' },
   { id: 'products', label: 'Store items', icon: ShoppingBag, kind: 'product', href: '/store' },
   { id: 'stripe', label: 'Stripe catalog', icon: ShoppingBag, href: '/store' },
@@ -96,7 +97,7 @@ function DocumentEditor({ document, title, onDirty, onSaved }) {
     {documentFields[document.key].map(([key, label, type]) => type === 'image' ? <ImageField key={key} label={label} value={data[key]} onChange={value => change(key, value)} onBusy={setUploading} />
       : type === 'checkbox' ? <label className="row" key={key}><input type="checkbox" checked={data[key]} onChange={e => change(key, e.target.checked)} />{label}</label>
         : ['navigation', 'values', 'paragraphs'].includes(type) ? <Repeater key={key} type={type} label={label} value={data[key]} onChange={value => change(key, value)} />
-          : <TextField key={key} label={label} value={data[key]} multiline={type === 'textarea'} type={type === 'email' ? 'email' : 'text'} onChange={value => change(key, value)} required />)}
+          : <TextField key={key} label={label} value={data[key]} multiline={type === 'textarea' || type === 'optionalTextarea'} type={type === 'email' ? 'email' : 'text'} onChange={value => change(key, value)} required={!['optional', 'optionalTextarea'].includes(type)} />)}
   </fieldset><div className="admin-save-bar"><button className="btn primary" disabled={busy || uploading}><Save size={15} />{busy ? 'Saving…' : 'Save and publish'}</button></div></form>;
 }
 

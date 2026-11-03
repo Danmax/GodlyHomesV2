@@ -271,7 +271,7 @@ try {
       await page.screenshot({ path: 'test-results/studio-record.png', fullPage: true });
       await page.getByRole('button', { name: 'Arrange your episode' }).click();
       await page.locator('.segment-name').first().click();
-      await page.getByRole('heading', { name: 'Refine this segment' }).waitFor();
+      await page.getByRole('heading', { name: 'Refine this clip' }).waitFor();
       await page.locator('audio').evaluate(audio => new Promise((resolve, reject) => {
         if (Number.isFinite(audio.duration) && audio.duration > 0) return resolve();
         audio.addEventListener('loadedmetadata', () => audio.duration > 0 ? resolve() : reject(new Error('Invalid source duration')), { once: true });
@@ -328,6 +328,28 @@ try {
       await page.getByText('3 segments ready to arrange.').waitFor();
       await page.getByRole('heading', { name: 'Recover recordings' }).waitFor({ state: 'hidden' });
       assert.equal((await rows('SELECT COUNT(*) AS count FROM assets WHERE user_id = ?', [userId]))[0].count, assetsBeforeRecovery);
+      await page.getByRole('tab', { name: '2. Arrange & edit' }).click();
+      await page.locator('.segment-name').first().click();
+      await page.getByLabel('Cut from (seconds)').fill('0.3');
+      await page.getByLabel('Cut to (seconds)').fill('0.6');
+      await page.getByRole('button', { name: 'Cut selected range', exact: true }).click();
+      assert.equal(await page.locator('.segment-name').count(), 4);
+      const library = page.getByLabel('Audio library');
+      await library.selectOption({ index: 1 });
+      for (const role of ['transition', 'intro', 'closing']) {
+        await page.getByLabel('Add as', { exact: true }).selectOption(role);
+        await page.getByRole('button', { name: 'Add clip to episode' }).click();
+      }
+      assert.equal(await page.locator('.segment-name').count(), 7);
+      await page.getByText('Saved just now', { exact: true }).waitFor();
+      await page.reload();
+      await page.locator('.episode-open').filter({ hasText: 'Browser recorded episode' }).click();
+      await page.getByRole('tab', { name: '2. Arrange & edit' }).click();
+      assert.equal(await page.locator('.segment-name').count(), 7);
+      assert.match(await page.locator('.segment-name').first().innerText(), /intro/);
+      assert.match(await page.locator('.segment-name').last().innerText(), /closing/);
+      await page.screenshot({ path: 'test-results/podcast-editor-mobile.png', fullPage: true });
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
       page.once('dialog', dialog => dialog.dismiss());
       await page.getByRole('button', { name: 'Delete episode', exact: true }).click();
       await page.getByRole('heading', { name: 'Browser recorded episode', exact: true }).waitFor();
@@ -362,6 +384,15 @@ try {
       await page.getByRole('button', { name: 'Save and publish', exact: true }).click();
       await page.getByText('Saved. Your changes are live.', { exact: true }).waitFor();
       const adminNav = page.getByRole('navigation', { name: 'Website administration' });
+      await adminNav.getByRole('button', { name: 'Podcast branding', exact: true }).click();
+      await page.getByLabel('Author name', { exact: true }).fill('Test Podcast Author');
+      await page.getByLabel('Author biography', { exact: true }).fill('Encouragement for families from our podcast host.');
+      await page.getByLabel('Show author spotlight', { exact: true }).check();
+      await page.getByRole('button', { name: 'Save and publish', exact: true }).click();
+      await page.getByText('Saved. Your changes are live.', { exact: true }).waitFor();
+      await publicPage.goto(url);
+      await publicPage.getByRole('heading', { name: 'Test Podcast Author' }).waitFor();
+      assert.match(await (await fetch(`${url}/podcast/feed.xml`)).text(), /Test Podcast Author/);
       await adminNav.getByRole('button', { name: 'Reflexions', exact: true }).click();
       await page.getByRole('button', { name: 'New reflexion', exact: true }).click();
       await page.getByLabel('Title', { exact: true }).fill('Browser reflexion');

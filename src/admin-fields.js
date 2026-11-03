@@ -1,4 +1,10 @@
 export const documentFields = {
+  podcast: [
+    ['title', 'Podcast show title'], ['description', 'Podcast show description', 'textarea'],
+    ['coverUrl', 'Podcast cover image', 'image'], ['coverAlt', 'Podcast cover description'],
+    ['spotlightEnabled', 'Show author spotlight', 'checkbox'], ['authorName', 'Author name', 'optional'],
+    ['authorBio', 'Author biography', 'optionalTextarea'], ['authorImageUrl', 'Author portrait', 'image'], ['authorLink', 'Author website or profile (optional)', 'optional'],
+  ],
   site: [
     ['name', 'Website name'], ['tagline', 'Tagline'], ['email', 'Contact email', 'email'], ['logoUrl', 'Logo image address', 'image'], ['logoAlt', 'Logo description'], ['footerText', 'Footer message', 'textarea'], ['navigation', 'Navigation links', 'navigation'],
   ],
