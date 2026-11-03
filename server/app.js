@@ -14,6 +14,7 @@ import { probe, run } from './audio.js';
 import { feed } from './feed.js';
 import { receiveMedia, requireMediaFile, syncEpisodeMedia, mediaFile } from './media.js';
 import { publicWebsite, websiteAdmin, publicImage } from './website.js';
+import { workerMedia } from './worker-media.js';
 
 const asyncRoute = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const failure = (message, status = 400) => Object.assign(new Error(message), { status });
@@ -80,6 +81,7 @@ export async function createApp({ serveStatic = true } = {}) {
     res.json({ message: 'You’re on the list. Thank you for joining us.' });
   }));
 
+  app.use('/api/worker', workerMedia);
   app.use('/api', asyncRoute(authenticate));
   app.use('/api/admin', websiteAdmin);
   app.get('/api/auth/me', (req, res) => res.json({ user: req.user, csrf: req.csrf }));

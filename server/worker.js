@@ -6,6 +6,7 @@ import { pathToFileURL } from 'node:url';
 import { db, rows, transaction, json } from './db.js';
 import { config } from './config.js';
 import { run, probe, buildMix } from './audio.js';
+import { prepareWorkerSource, uploadWorkerOutput } from './worker-media.js';
 
 export async function claimJob() {
   return transaction(async connection => {
@@ -38,7 +39,7 @@ export async function processJob(job) {
       if (!asset) throw new Error('Missing source asset');
       indexes.set(id, indexes.size);
       if (id === arrangement.music.assetId) inputs.push('-stream_loop', '-1');
-      inputs.push('-i', path.join(config.mediaDir, asset.storage_key));
+      inputs.push('-i', await prepareWorkerSource(asset, job));
     }
     const graph = buildMix(arrangement, indexes);
     // Use two-pass EBU R128 measurement to normalize the actual mix, not an RMS approximation.
@@ -53,11 +54,16 @@ export async function processJob(job) {
     const { stat } = await import('node:fs/promises');
     const { size } = await stat(output);
     await rename(output, path.join(config.mediaDir, key));
+    // A remote studio must be able to play the export before it sees "ready".
+    await uploadWorkerOutput(job, key, size);
     const result = await rows("UPDATE render_jobs SET state = 'ready', output_key = ?, bytes = ?, duration = ?, lease_until = NULL WHERE id = ? AND lease_token = ? AND state = 'running'", [key, size, duration, job.id, job.lease_token]);
     if (!result.affectedRows) await rm(path.join(config.mediaDir, key), { force: true });
   } catch (error) {
     console.error(`Render ${job.id} failed:`, error.message);
-    await rows("UPDATE render_jobs SET state = 'failed', error = ?, lease_until = NULL WHERE id = ? AND lease_token = ?", ['Audio could not be rendered. Check the sources and retry; contact the administrator if it repeats.', job.id, job.lease_token]);
+    const message = error.publicMessage || (error.code === 'ENOENT'
+      ? 'Audio tools are unavailable on the render worker. Configure FFmpeg and ffprobe, then retry.'
+      : 'Audio could not be rendered. Check the sources and retry; contact the administrator if it repeats.');
+    await rows("UPDATE render_jobs SET state = 'failed', error = ?, lease_until = NULL WHERE id = ? AND lease_token = ?", [message, job.id, job.lease_token]);
   } finally {
     clearInterval(heartbeat);
     await rm(tempDir, { recursive: true, force: true });

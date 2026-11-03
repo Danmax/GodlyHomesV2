@@ -184,6 +184,31 @@ try {
   assert.equal(privateAudio.status, 206);
   assert.equal((await mutate('post', `/api/episodes/${episode.id}/publish`).send({ jobId: job.id })).status, 200);
   assert.deepEqual(await readFile(path.join(remoteMedia, finished.output_key)), renderedBytes);
+  // A hosted take exists only on the second app; the local worker fetches it
+  // using its lease and delivers the export before marking the job ready.
+  const remoteEpisode = (await mutate('post', '/api/episodes')).body;
+  assert.equal((await mutate('put', `/api/episodes/${remoteEpisode.id}`).send({ ...remoteEpisode, arrangement })).status, 200);
+  const remoteRender = await mutate('post', `/api/episodes/${remoteEpisode.id}/render`);
+  const remoteJob = await claimJob(); assert.equal(remoteJob.id, remoteRender.body.id);
+  const workerUrl = `${remoteOrigin}/api/worker/jobs/${remoteJob.id}`;
+  const workerHeaders = { Authorization: `Bearer ${remoteJob.lease_token}` };
+  assert.equal((await fetch(`${workerUrl}/assets/${asset.id}`)).status, 401);
+  assert.equal((await fetch(`${workerUrl}/assets/${asset.id}`, { headers: { Authorization: `Bearer ${randomUUID()}` } })).status, 401);
+  assert.equal((await fetch(`${workerUrl}/assets/${randomUUID()}`, { headers: workerHeaders })).status, 404);
+  await rows('UPDATE render_jobs SET lease_until = DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 MINUTE) WHERE id = ?', [remoteJob.id]);
+  assert.equal((await fetch(`${workerUrl}/assets/${asset.id}`, { headers: workerHeaders })).status, 401);
+  await rows('UPDATE render_jobs SET lease_until = DATE_ADD(UTC_TIMESTAMP(), INTERVAL 2 MINUTE) WHERE id = ?', [remoteJob.id]);
+  await unlink(sourcePath);
+  await processJob(remoteJob);
+  const [remoteFinished] = await rows('SELECT * FROM render_jobs WHERE id = ?', [remoteJob.id]);
+  assert.equal(remoteFinished.state, 'ready', remoteFinished.error);
+  assert.deepEqual(await readFile(sourcePath), sourceBytes);
+  assert.deepEqual(await readFile(path.join(remoteMedia, remoteFinished.output_key)), await readFile(path.join(process.env.MEDIA_DIR, remoteFinished.output_key)));
+  const delivered = await fetch(`${remoteOrigin}/api/jobs/${remoteJob.id}/audio`, { headers: { Cookie: cookie, Range: 'bytes=0-99' } });
+  assert.equal(delivered.status, 206); await delivered.body.cancel();
+  assert.equal((await fetch(`${workerUrl}/assets/${asset.id}`, { headers: workerHeaders })).status, 401);
+  assert.equal((await mutate('delete', `/api/episodes/${remoteEpisode.id}`)).status, 200);
+  console.log('PASS: Remote-only source recovery, worker lease authentication/expiry/scope and hosted MP3 delivery before ready.');
   mediaConfig.remoteMediaOrigin = null;
   mediaServer.kill('SIGTERM'); await new Promise(resolve => mediaServer.once('exit', resolve)); mediaServer = null;
   assert.equal((await mutate('post', `/api/episodes/${episode.id}/publish`).send({ jobId: job.id })).status, 200);
