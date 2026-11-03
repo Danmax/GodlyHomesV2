@@ -17,7 +17,7 @@ await new Promise(resolve => server.once('listening', resolve));
 const origin = `http://127.0.0.1:${server.address().port}`;
 let browser;
 try {
-  for (const route of ['/about', '/resources', '/store', '/resources/a-quiet-beginning']) {
+  for (const route of ['/about', '/resources', '/store', '/checkout', '/resources/a-quiet-beginning']) {
     assert.equal((await fetch(`${origin}${route}`)).status, 200, `Direct route: ${route}`);
   }
   browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: true });

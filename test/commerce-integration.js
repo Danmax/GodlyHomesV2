@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import { mkdir } from 'node:fs/promises';
 import Stripe from 'stripe';
 import request from 'supertest';
 
@@ -93,9 +94,10 @@ export async function testCommerce({ createApp, rows, origin, password }) {
   // Never silently charge a changed Stripe price or mix live/test catalogs.
   price.unit_amount = 1300; assert.equal((await buy()).status, 409); price.unit_amount = 1200;
   price.livemode = true; assert.equal((await buy()).status, 409); price.livemode = false;
-  item = (await mutate('put', `/api/admin/entries/product/${itemId}`).send({ ...item, data: { ...item.data, kind: 'physical' } })).body;
-  assert.equal((await buy()).status, 409); // shipping not configured
-  item = (await mutate('put', `/api/admin/entries/product/${itemId}`).send({ ...item, data: { ...item.data, shippingCountries: ['US', 'CA'], shippingRates: ['shr_test'] } })).body;
+  assert.equal((await mutate('put', `/api/admin/entries/product/${itemId}`).send({ ...item, data: { ...item.data, kind: 'physical' } })).status, 400);
+  item = (await mutate('put', `/api/admin/entries/product/${itemId}`).send({ ...item, status: 'draft', data: { ...item.data, kind: 'physical' } })).body;
+  assert.equal((await buy()).status, 404);
+  item = (await mutate('put', `/api/admin/entries/product/${itemId}`).send({ ...item, status: 'published', data: { ...item.data, shippingCountries: ['US', 'CA'], shippingRates: ['shr_test'] } })).body;
   shippingCurrency = 'eur'; assert.equal((await buy()).status, 409); shippingCurrency = 'usd';
   assert.equal((await buy()).status, 201);
   assert.deepEqual(calls.at(-1).params.shipping_address_collection, { allowed_countries: ['US', 'CA'] });
@@ -114,7 +116,9 @@ export async function testCommerce({ createApp, rows, origin, password }) {
   physicalSession.collected_information = { shipping_details: { name: 'A buyer', address: { line1: '1 Test Street', city: 'Test City', country: 'US' } } };
   const physicalPayload = JSON.stringify({ id: `evt_${randomUUID()}`, type: 'checkout.session.completed', data: { object: { id: physicalSessionId } } });
   assert.equal((await request(app).post('/api/stripe/webhook').set('Content-Type', 'application/json').set('Stripe-Signature', sdk.webhooks.generateTestHeaderString({ payload: physicalPayload, secret: webhookSecret })).send(physicalPayload)).status, 200);
-  const physicalOrder = (await admin.get('/api/admin/commerce/orders')).body.items.find(order => order.sessionId === physicalSessionId);
+  const physicalOrders = await admin.get('/api/admin/commerce/orders');
+  assert.equal(physicalOrders.status, 200, JSON.stringify(physicalOrders.body));
+  const physicalOrder = physicalOrders.body.items.find(order => order.sessionId === physicalSessionId);
   assert.equal(physicalOrder.amountTotal, 1700); assert.equal(physicalOrder.shipping.address.country, 'US');
   // A timeout after Stripe creates a session must remain recoverable by webhook.
   failCreation = true; assert.equal((await buy()).status, 502); failCreation = false;
@@ -130,6 +134,7 @@ export async function testCommerce({ createApp, rows, origin, password }) {
   assert.equal((await request(unconfiguredApp).post('/api/stripe/webhook').set('Content-Type', 'application/json').send('{}')).status, 503);
 
   if (process.env.RUN_BROWSER === '1') {
+    await mkdir('test-results', { recursive: true });
     const { chromium } = await import('playwright');
     const { config } = await import('../server/config.js');
     const server = app.listen(0, '127.0.0.1');

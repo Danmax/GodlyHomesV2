@@ -29,5 +29,8 @@ export const productSchema = z.object({
   shippingCountries: z.array(z.string().regex(/^[A-Z]{2}$/)).max(100).optional().default([]),
   shippingRates: z.array(z.string().regex(/^shr_[A-Za-z0-9]+$/).max(255)).max(5).optional().default([]),
 }).refine(data => !data.stripePriceId || !data.checkoutUrl, 'Choose Stripe Checkout or an external checkout link, not both.');
-export const entrySchema = kind => z.object({ slug: z.string().min(1).max(160).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'Use lowercase letters, numbers, and hyphens for the address.'), status: z.enum(['draft', 'published']), sortOrder: z.number().int().min(-10000).max(10000), data: kind === 'resource' ? resourceSchema : productSchema });
+export const entrySchema = kind => z.object({ slug: z.string().min(1).max(160).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'Use lowercase letters, numbers, and hyphens for the address.'), status: z.enum(['draft', 'published']), sortOrder: z.number().int().min(-10000).max(10000), data: kind === 'resource' ? resourceSchema : productSchema }).refine(entry => {
+  if (kind !== 'product' || entry.status !== 'published' || !entry.data.stripePriceId || entry.data.kind !== 'physical') return true;
+  return entry.data.shippingCountries.length > 0 && entry.data.shippingRates.length > 0;
+}, 'Add shipping countries and Stripe shipping rates before publishing a physical product.');
 export const versionSchema = z.number().int().positive();

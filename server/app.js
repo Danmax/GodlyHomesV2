@@ -247,7 +247,7 @@ export async function createApp({ serveStatic = true, stripeClient, commerceSett
   app.use('/api', (_req, res) => res.status(404).json({ error: 'Endpoint not found.' }));
   if (serveStatic) {
     app.use(express.static(path.resolve('dist')));
-    app.get(['/', '/about', '/resources', '/resources/:slug', '/store', '/store/:slug', '/admin', '/studio', '/podcast/:id'], (_req, res) => res.sendFile(path.resolve('dist/index.html')));
+    app.get(['/', '/about', '/resources', '/resources/:slug', '/store', '/store/:slug', '/checkout', '/admin', '/studio', '/podcast/:id'], (_req, res) => res.sendFile(path.resolve('dist/index.html')));
   }
   app.use((error, _req, res, next) => {
     if (res.headersSent) return next(error);
