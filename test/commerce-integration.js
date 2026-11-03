@@ -11,10 +11,14 @@ export async function testCommerce({ createApp, rows, origin, password }) {
   const webhookSecret = 'whsec_isolated_integration';
   const product = { id: 'prod_integration', active: true, name: 'Family journal', description: 'A journal for families.', images: [], shippable: null };
   const price = { id: 'price_integration', active: true, type: 'one_time', unit_amount: 1200, currency: 'usd', livemode: false, product };
-  const sessions = new Map(), calls = [], promotionCodes = [], coupons = new Map();
+  const sessions = new Map(), calls = [], promotionCodes = [], coupons = new Map(), payments = new Map();
   let failCreation = false, shippingCurrency = 'usd';
   const stripeClient = {
     webhooks: sdk.webhooks,
+    paymentIntents: { retrieve: async id => ({ id, latest_charge: structuredClone(payments.get(id).charge) }) },
+    charges: { retrieve: async id => structuredClone([...payments.values()].find(payment => payment.charge.id === id).charge) },
+    refunds: { list: async params => ({ data: structuredClone(payments.get(params.payment_intent).refunds), has_more: false }) },
+    disputes: { list: async params => ({ data: structuredClone(payments.get(params.payment_intent).disputes), has_more: false }) },
     accounts: { retrieve: async () => ({ charges_enabled: true, business_profile: { name: 'Integration store' } }) },
     prices: { retrieve: async () => structuredClone(price), list: async () => ({ data: [price, { ...price, id: 'price_recurring', type: 'recurring' }], has_more: false }) },
     coupons: { create: async input => { const coupon = { id: `coupon_${randomUUID()}`, percent_off: input.percent_off ?? null, amount_off: input.amount_off ?? null, currency: input.currency ?? null }; coupons.set(coupon.id, coupon); return structuredClone(coupon); }, del: async () => ({ deleted: true }) },
@@ -28,12 +32,14 @@ export async function testCommerce({ createApp, rows, origin, password }) {
       create: async (params, options) => {
         calls.push({ params, options });
         const session = { id: `cs_test_${randomUUID()}`, mode: 'payment', metadata: params.metadata, client_reference_id: params.client_reference_id,
-          currency: 'usd', amount_total: price.unit_amount, livemode: false, payment_status: 'unpaid', status: 'open', url: 'https://checkout.stripe.com/c/pay/integration' };
+          currency: 'usd', amount_total: price.unit_amount, livemode: false, payment_status: 'unpaid', status: 'open', url: 'https://checkout.stripe.com/c/pay/integration', payment_intent: `pi_${randomUUID()}` };
+        payments.set(session.payment_intent, { charge: { id: `ch_${randomUUID()}`, payment_intent: session.payment_intent, amount_refunded: 0, currency: 'usd', livemode: false, disputed: false }, refunds: [], disputes: [] });
         sessions.set(session.id, session);
         if (failCreation) throw Object.assign(new Error('Simulated ambiguous network timeout'), { type: 'StripeConnectionError' });
         return structuredClone(session);
       },
       retrieve: async id => structuredClone(sessions.get(id)),
+      list: async params => ({ data: [...sessions.values()].filter(session => session.payment_intent === params.payment_intent), has_more: false }),
     } },
   };
   const app = await createApp({ stripeClient, commerceSettings: { webhookSecret, automaticTax: false } });
@@ -93,6 +99,10 @@ export async function testCommerce({ createApp, rows, origin, password }) {
   const [sessionId, session] = [...sessions].at(-1);
   const publicStatus = () => request(app).get(`/api/store/orders/${orderId}?token=${token}`);
   assert.equal((await publicStatus()).body.paymentStatus, 'pending');
+  const pendingIntent = session.payment_intent;
+  session.payment_intent = null;
+  assert.equal((await mutate('post', `/api/admin/commerce/orders/${orderId}/sync`).send({})).status, 200);
+  session.payment_intent = pendingIntent;
   assert.equal((await request(app).get(`/api/store/orders/${orderId}?token=${'a'.repeat(64)}`)).status, 404);
   let order = (await admin.get('/api/admin/commerce/orders')).body.items.find(order => order.id === orderId);
   assert.equal((await mutate('patch', `/api/admin/commerce/orders/${orderId}`).send({ version: order.version, fulfillmentStatus: 'fulfilled', notes: '' })).status, 409);
@@ -150,6 +160,52 @@ export async function testCommerce({ createApp, rows, origin, password }) {
   assert.equal(physicalOrders.status, 200, JSON.stringify(physicalOrders.body));
   const physicalOrder = physicalOrders.body.items.find(order => order.sessionId === physicalSessionId);
   assert.equal(physicalOrder.amountTotal, 1700); assert.equal(physicalOrder.shipping.address.country, 'US');
+  const payment = payments.get(physicalSession.payment_intent);
+  const notifyReview = (type, id = `evt_${randomUUID()}`) => {
+    const payload = JSON.stringify({ id, type, data: { object: { id: `re_${randomUUID()}`, payment_intent: physicalSession.payment_intent, charge: payment.charge.id } } });
+    return request(app).post('/api/stripe/webhook').set('Content-Type', 'application/json').set('Stripe-Signature', sdk.webhooks.generateTestHeaderString({ payload, secret: webhookSecret })).send(payload);
+  };
+  const readPhysical = async () => (await admin.get('/api/admin/commerce/orders')).body.items.find(order => order.id === physicalOrder.id);
+  const fulfillPhysical = async () => mutate('patch', `/api/admin/commerce/orders/${physicalOrder.id}`).send({ version: (await readPhysical()).version, fulfillmentStatus: 'fulfilled', notes: '' });
+  payment.refunds = [{ status: 'pending' }];
+  const pendingRefundEvent = `evt_${randomUUID()}`;
+  assert.equal((await notifyReview('refund.created', pendingRefundEvent)).status, 200);
+  assert.equal((await readPhysical()).refundStatus, 'pending');
+  assert.equal((await fulfillPhysical()).status, 409);
+  const afterReview = (await readPhysical()).version;
+  assert.equal((await notifyReview('refund.created', pendingRefundEvent)).status, 200);
+  assert.equal((await readPhysical()).version, afterReview);
+  payment.refunds = [{ status: 'succeeded' }]; payment.charge.amount_refunded = 500;
+  assert.equal((await notifyReview('charge.refunded')).status, 200);
+  assert.equal((await readPhysical()).refundStatus, 'partially_refunded');
+  payment.charge.amount_refunded = 1700;
+  assert.equal((await notifyReview('refund.updated')).status, 200);
+  assert.equal((await readPhysical()).refundStatus, 'refunded');
+  assert.equal((await fulfillPhysical()).status, 409);
+  assert.equal((await physicalNotify('checkout.session.completed')).status, 200);
+  assert.equal((await readPhysical()).refundStatus, 'refunded');
+  payment.refunds = [{ status: 'failed' }]; payment.charge.amount_refunded = 0;
+  assert.equal((await notifyReview('refund.failed')).status, 200);
+  assert.equal((await readPhysical()).refundStatus, 'none');
+  payment.disputes = [{ status: 'needs_response' }]; payment.charge.disputed = true;
+  assert.equal((await notifyReview('charge.dispute.created')).status, 200);
+  assert.equal((await readPhysical()).disputeStatus, 'needs_response');
+  assert.equal((await fulfillPhysical()).status, 409);
+  payment.disputes = [{ status: 'lost' }];
+  assert.equal((await notifyReview('charge.dispute.closed')).status, 200);
+  assert.equal((await fulfillPhysical()).status, 409);
+  payment.disputes = [{ status: 'won' }];
+  assert.equal((await notifyReview('charge.dispute.closed')).status, 200);
+  const retrieveIntent = stripeClient.paymentIntents.retrieve;
+  stripeClient.paymentIntents.retrieve = async () => { throw { type: 'StripePermissionError' }; };
+  assert.equal((await fulfillPhysical()).status, 502);
+  assert.equal((await readPhysical()).fulfillmentStatus, 'unfulfilled');
+  stripeClient.paymentIntents.retrieve = retrieveIntent;
+  assert.equal((await fulfillPhysical()).status, 200);
+  await rows('UPDATE store_orders SET stripe_payment_intent_id = NULL WHERE id = ?', [physicalOrder.id]);
+  assert.equal((await notifyReview('refund.updated')).status, 200);
+  assert.equal((await mutate('post', `/api/admin/commerce/orders/${physicalOrder.id}/sync`).send({})).status, 200);
+  console.log('PASS: Pending, partial and full refunds, dispute holds/loss/win, duplicate/out-of-order review events, live pre-fulfillment verification, and fail-closed Stripe permissions.');
   // A timeout after Stripe creates a session must remain recoverable by webhook.
   failCreation = true; assert.equal((await buy()).status, 502); failCreation = false;
   const [timeoutSessionId, timeoutSession] = [...sessions].at(-1);

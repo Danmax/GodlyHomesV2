@@ -12,6 +12,9 @@ const route = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catc
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
 const currencies = ['usd', 'cad', 'eur', 'gbp', 'aud'];
 const events = ['checkout.session.completed', 'checkout.session.async_payment_succeeded', 'checkout.session.async_payment_failed', 'checkout.session.expired'];
+const reviewEvents = ['refund.created', 'refund.updated', 'refund.failed', 'charge.refunded', 'charge.dispute.created', 'charge.dispute.updated', 'charge.dispute.closed', 'charge.dispute.funds_withdrawn', 'charge.dispute.funds_reinstated'];
+const stripeId = value => typeof value === 'string' ? value : value?.id || null;
+const canFulfill = order => order.payment_status === 'paid' && Number(order.amount_refunded) === 0 && order.refund_status === 'none' && ['none', 'won', 'warning_closed'].includes(order.dispute_status);
 const idSchema = z.string().uuid();
 const priceSchema = z.string().regex(/^price_[A-Za-z0-9]+$/).max(255);
 const promotionCodeSchema = z.string().trim().toUpperCase().regex(/^[A-Z0-9][A-Z0-9_-]{2,39}$/, 'Use 3–40 uppercase letters, numbers, hyphens, or underscores.');
@@ -68,6 +71,40 @@ export function createCommerce({ stripeClient, settings = commerceSettings() } =
     if (!usablePrice(price)) throw fail('Choose an active, fixed, one-time Stripe price in a supported currency.');
     return price;
   };
+  const reviewPayment = async session => {
+    const paymentIntent = stripeId(session.payment_intent);
+    if (!paymentIntent) {
+      if (session.payment_status === 'no_payment_required' && session.amount_total === 0) return { refunded: 0, refund: 'none', dispute: 'none' };
+      throw fail('Stripe payment details are not ready for review. Retry before fulfilling this order.', 409);
+    }
+    const intent = await stripeCall(client => client.paymentIntents.retrieve(paymentIntent, { expand: ['latest_charge'] }, { timeout: 8000, maxNetworkRetries: 0 }));
+    const charge = typeof intent.latest_charge === 'string' ? await stripeCall(client => client.charges.retrieve(intent.latest_charge)) : intent.latest_charge;
+    if (!charge || stripeId(charge.payment_intent) !== paymentIntent || charge.currency !== session.currency || Boolean(charge.livemode) !== Boolean(session.livemode)) throw fail('Stripe payment details could not be matched to this order.', 409);
+    const [refunds, disputes] = await Promise.all([
+      stripeCall(client => client.refunds.list({ payment_intent: paymentIntent, limit: 100 }, { timeout: 8000, maxNetworkRetries: 0 })),
+      stripeCall(client => client.disputes.list({ payment_intent: paymentIntent, limit: 100 }, { timeout: 8000, maxNetworkRetries: 0 })),
+    ]);
+    const refunded = Number(charge.amount_refunded || 0);
+    const pending = refunds.data.some(refund => ['pending', 'requires_action'].includes(refund.status));
+    const openDispute = disputes.data.find(dispute => !['won', 'warning_closed'].includes(dispute.status));
+    return { refunded, refund: refunds.has_more ? 'needs_review' : pending ? 'pending' : refunded > 0 ? refunded >= Number(session.amount_total) ? 'refunded' : 'partially_refunded' : 'none',
+      dispute: disputes.has_more ? 'needs_review' : openDispute?.status || (charge.disputed && !disputes.data.length ? 'needs_review' : disputes.data[0]?.status || 'none') };
+  };
+  const syncReview = async (id, expectedVersion, event) => transaction(async connection => {
+    const [order] = await rows('SELECT * FROM store_orders WHERE id = ? FOR UPDATE', [id], connection);
+    if (!order) throw fail('Order not found.', 404);
+    if (expectedVersion !== undefined && order.version !== expectedVersion) throw fail('This order changed. Refresh it before saving.', 409);
+    if (event && (await rows('SELECT event_id FROM stripe_webhook_events WHERE event_id = ?', [event.id], connection)).length) return order;
+    if (!order.stripe_session_id) throw fail('Stripe checkout details are not ready. Retry shortly.', 409);
+    const session = await stripeCall(client => client.checkout.sessions.retrieve(order.stripe_session_id));
+    if (session.metadata?.source !== 'godly_homes' || session.metadata.orderId !== order.id || session.client_reference_id !== order.id || session.currency !== order.currency || Boolean(session.livemode) !== Boolean(order.livemode)) throw fail('Stripe session does not match this order.', 409);
+    const payment = session.status === 'complete' && ['paid', 'no_payment_required'].includes(session.payment_status) ? 'paid' : session.status === 'expired' ? 'expired' : 'pending';
+    const review = payment === 'paid' ? await reviewPayment(session) : { refunded: Number(order.amount_refunded), refund: order.refund_status, dispute: order.dispute_status };
+    await rows(`UPDATE store_orders SET stripe_payment_intent_id = ?, amount_refunded = ?, refund_status = ?, dispute_status = ?, payment_status = ?, payment_checked_at = UTC_TIMESTAMP(), version = version + 1 WHERE id = ?`,
+      [stripeId(session.payment_intent), review.refunded, review.refund, review.dispute, payment, order.id], connection);
+    if (event) await rows('INSERT INTO stripe_webhook_events (event_id, event_type) VALUES (?, ?)', [event.id, event.type], connection);
+    return { ...order, payment_status: payment, amount_refunded: review.refunded, refund_status: review.refund, dispute_status: review.dispute, version: order.version + 1 };
+  });
 
   const publicRoutes = express.Router(), adminRoutes = express.Router();
   publicRoutes.post('/checkout', rateLimit({ windowMs: 15 * 60000, limit: 20, standardHeaders: 'draft-8', legacyHeaders: false }), route(async (req, res) => {
@@ -123,7 +160,7 @@ export function createCommerce({ stripeClient, settings = commerceSettings() } =
     const id = idSchema.parse(req.params.id), token = z.string().regex(/^[a-f0-9]{64}$/).parse(req.query.token);
     const [order] = await rows('SELECT * FROM store_orders WHERE id = ? AND token_hash = ?', [id, digest(token)]);
     if (!order) throw fail('Order not found.', 404);
-    res.json({ id: order.id, item: json(order.item_snapshot), paymentStatus: order.payment_status, fulfillmentStatus: order.fulfillment_status, amountTotal: Number(order.amount_total), currency: order.currency, testMode: !order.livemode });
+    res.json({ id: order.id, item: json(order.item_snapshot), paymentStatus: order.payment_status, fulfillmentStatus: order.fulfillment_status, amountTotal: Number(order.amount_total), amountRefunded: Number(order.amount_refunded), refundStatus: order.refund_status, disputeStatus: order.dispute_status, currency: order.currency, testMode: !order.livemode });
   }));
 
   adminRoutes.use(requireAdmin);
@@ -150,7 +187,7 @@ export function createCommerce({ stripeClient, settings = commerceSettings() } =
     }
     const [last] = await rows('SELECT processed_at FROM stripe_webhook_events ORDER BY processed_at DESC LIMIT 1');
     res.json({ configured: Boolean(stripe), connected, connectionError, accountWarning, webhookConfigured: Boolean(settings.webhookSecret), automaticTax: settings.automaticTax, account,
-      webhookUrl: `${config.origin}/api/stripe/webhook`, events, lastWebhookAt: last?.processed_at || null });
+      webhookUrl: `${config.origin}/api/stripe/webhook`, events: [...events, ...reviewEvents], lastWebhookAt: last?.processed_at || null });
   }));
   adminRoutes.get('/catalog', route(async (req, res) => {
     const cursor = req.query.after ? priceSchema.parse(req.query.after) : undefined;
@@ -218,14 +255,29 @@ export function createCommerce({ stripeClient, settings = commerceSettings() } =
     const orders = await rows(`SELECT * FROM store_orders ORDER BY created_at DESC, id DESC LIMIT 26 OFFSET ${(page - 1) * 25}`);
     res.json({ items: orders.slice(0, 25).map(order => ({ id: order.id, item: json(order.item_snapshot), paymentStatus: order.payment_status, fulfillmentStatus: order.fulfillment_status,
       amountTotal: Number(order.amount_total), currency: order.currency, email: order.customer_email, name: order.customer_name, shipping: order.shipping ? json(order.shipping) : null,
-      sessionId: order.stripe_session_id, testMode: !order.livemode, notes: order.notes, version: order.version, createdAt: order.created_at })), hasMore: orders.length > 25 });
+      sessionId: order.stripe_session_id, testMode: !order.livemode, notes: order.notes, version: order.version, createdAt: order.created_at,
+      amountRefunded: Number(order.amount_refunded), refundStatus: order.refund_status, disputeStatus: order.dispute_status, paymentCheckedAt: order.payment_checked_at,
+      canFulfill: canFulfill(order) })), hasMore: orders.length > 25 });
   }));
   adminRoutes.patch('/orders/:id', route(async (req, res) => {
     const id = idSchema.parse(req.params.id);
     const { version, fulfillmentStatus, notes } = z.object({ version: z.number().int().positive(), fulfillmentStatus: z.enum(['unfulfilled', 'fulfilled']), notes: z.string().max(4000) }).parse(req.body);
+    const [order] = await rows('SELECT * FROM store_orders WHERE id = ?', [id]);
+    if (!order || order.version !== version) throw fail('This order changed. Refresh it before saving.', 409);
+    let expectedVersion = version;
+    if (fulfillmentStatus === 'fulfilled' && order.fulfillment_status !== 'fulfilled') {
+      if (order.payment_status !== 'paid') throw fail('Only paid orders can be fulfilled.', 409);
+      const reviewed = await syncReview(id, version);
+      expectedVersion = reviewed.version;
+      if (!canFulfill(reviewed)) throw fail('This order has a refund or dispute. Do not fulfill it. Refresh the order and review it in Stripe.', 409);
+    }
     const result = await rows(`UPDATE store_orders SET fulfillment_status = ?, notes = ?, version = version + 1
-      WHERE id = ? AND version = ? AND (payment_status = 'paid' OR ? = 'unfulfilled')`, [fulfillmentStatus, notes, id, version, fulfillmentStatus]);
+      WHERE id = ? AND version = ?`, [fulfillmentStatus, notes, id, expectedVersion]);
     if (!result.affectedRows) throw fail('Reload this order before saving. Only paid orders can be marked fulfilled.', 409);
+    res.json({ ok: true });
+  }));
+  adminRoutes.post('/orders/:id/sync', route(async (req, res) => {
+    await syncReview(idSchema.parse(req.params.id));
     res.json({ ok: true });
   }));
 
@@ -234,8 +286,27 @@ export function createCommerce({ stripeClient, settings = commerceSettings() } =
     let event;
     try { event = stripe.webhooks.constructEvent(req.body, req.headers['stripe-signature'], settings.webhookSecret); }
     catch { throw fail('Stripe webhook signature is invalid.', 400); }
-    if (!events.includes(event.type)) return res.json({ received: true });
+    if (![...events, ...reviewEvents].includes(event.type)) return res.json({ received: true });
     if ((await rows('SELECT event_id FROM stripe_webhook_events WHERE event_id = ?', [event.id])).length) return res.json({ received: true });
+    if (reviewEvents.includes(event.type)) {
+      const object = event.data.object;
+      let paymentIntent = stripeId(object.payment_intent);
+      if (!paymentIntent && (object.charge || object.object === 'charge')) {
+        const charge = await stripeCall(client => client.charges.retrieve(stripeId(object.charge) || object.id));
+        paymentIntent = stripeId(charge.payment_intent);
+      }
+      if (!paymentIntent) return res.json({ received: true });
+      let [order] = await rows('SELECT id FROM store_orders WHERE stripe_payment_intent_id = ?', [paymentIntent]);
+      if (!order) {
+        const sessions = await stripeCall(client => client.checkout.sessions.list({ payment_intent: paymentIntent, limit: 100 }));
+        const session = sessions.data.find(item => item.metadata?.source === 'godly_homes' && idSchema.safeParse(item.metadata.orderId).success);
+        if (!session) return res.json({ received: true });
+        [order] = await rows('SELECT id FROM store_orders WHERE id = ?', [session.metadata.orderId]);
+        if (!order) throw fail('Order is not yet available. Retry this webhook.', 503);
+      }
+      await syncReview(order.id, undefined, event);
+      return res.json({ received: true });
+    }
     // Retrieve current state instead of trusting event ordering or redirect data.
     const session = await stripeCall(client => client.checkout.sessions.retrieve(event.data.object.id));
     if (session.metadata?.source !== 'godly_homes' || session.mode !== 'payment' || !idSchema.safeParse(session.metadata?.orderId).success) return res.json({ received: true });
@@ -254,8 +325,8 @@ export function createCommerce({ stripeClient, settings = commerceSettings() } =
         else if (event.type === 'checkout.session.async_payment_failed') state = 'failed';
       }
       const shipping = session.collected_information?.shipping_details || session.shipping_details || null;
-      await rows(`UPDATE store_orders SET stripe_session_id = ?, payment_status = ?, amount_total = ?, customer_email = ?, customer_name = ?, shipping = ?, version = version + 1 WHERE id = ?`,
-        [session.id, state, session.amount_total ?? order.amount_total, session.customer_details?.email || null, session.customer_details?.name || null, shipping ? JSON.stringify(shipping) : null, order.id], connection);
+      await rows(`UPDATE store_orders SET stripe_session_id = ?, stripe_payment_intent_id = ?, payment_status = ?, amount_total = ?, customer_email = ?, customer_name = ?, shipping = ?, version = version + 1 WHERE id = ?`,
+        [session.id, stripeId(session.payment_intent), state, session.amount_total ?? order.amount_total, session.customer_details?.email || null, session.customer_details?.name || null, shipping ? JSON.stringify(shipping) : null, order.id], connection);
       await rows('INSERT INTO stripe_webhook_events (event_id, event_type) VALUES (?, ?)', [event.id, event.type], connection);
     });
     res.json({ received: true });

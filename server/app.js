@@ -17,6 +17,7 @@ import { publicWebsite, websiteAdmin, publicImage, imageRoutes } from './website
 import { channelRoutes, publicChannels, channelSlug, channelSummary, seriesSummary, checkSeriesOwner } from './channels.js';
 import { workerMedia } from './worker-media.js';
 import { createCommerce } from './commerce.js';
+import { audioUploadLimit, guardedUpload, storageUsed } from './upload-budget.js';
 
 const asyncRoute = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const failure = (message, status = 400) => Object.assign(new Error(message), { status });
@@ -66,8 +67,12 @@ export async function createApp({ serveStatic = true, stripeClient, commerceSett
     const valid = await verifyPassword(input.password, user?.password_hash || `${'0'.repeat(32)}:${'0'.repeat(128)}`);
     if (!user || !valid) throw failure('Email or password is incorrect.', 401);
     const token = randomBytes(32).toString('hex'), csrf = randomBytes(32).toString('hex');
-    await rows('DELETE FROM sessions WHERE expires_at <= UTC_TIMESTAMP()');
-    await rows('INSERT INTO sessions (token_hash, user_id, csrf_token, expires_at) VALUES (?, ?, ?, DATE_ADD(UTC_TIMESTAMP(), INTERVAL 7 DAY))', [digest(token), user.id, csrf]);
+    await transaction(async connection => {
+      const [current] = await rows('SELECT password_hash FROM users WHERE id = ? FOR UPDATE', [user.id], connection);
+      if (!current || current.password_hash !== user.password_hash) throw failure('Email or password is incorrect.', 401);
+      await rows('DELETE FROM sessions WHERE user_id = ? AND expires_at <= UTC_TIMESTAMP()', [user.id], connection);
+      await rows('INSERT INTO sessions (token_hash, user_id, csrf_token, expires_at) VALUES (?, ?, ?, DATE_ADD(UTC_TIMESTAMP(), INTERVAL 7 DAY))', [digest(token), user.id, csrf], connection);
+    });
     res.cookie('gh_session', token, cookieOptions()).json({ user: { id: user.id, email: user.email, role: user.role }, csrf });
   }));
   app.get('/api/public/website', asyncRoute(async (_req, res) => res.json(await publicWebsite())));
@@ -110,7 +115,7 @@ export async function createApp({ serveStatic = true, stripeClient, commerceSett
     if (!publication || req.params.file !== `${publication.job_id}.mp3`) throw failure('Episode audio not found.', 404);
     const [job] = await rows('SELECT output_key FROM render_jobs WHERE id = ?', [publication.job_id]);
     const file = await audioPath(job.output_key, publication.bytes);
-    res.type('audio/mpeg').set('Cache-Control', 'public, max-age=3600').sendFile(file);
+    res.type('audio/mpeg').set('Cache-Control', 'private, no-cache, max-age=0, must-revalidate').sendFile(file, { cacheControl: false });
   }));
   app.post('/api/subscribe', rateLimit({ windowMs: 3600000, limit: 10, legacyHeaders: false }), asyncRoute(async (req, res) => {
     const { email, consent } = z.object({ email: z.email().max(254), consent: z.literal(true) }).parse(req.body);
@@ -128,14 +133,16 @@ export async function createApp({ serveStatic = true, stripeClient, commerceSett
   app.post('/api/auth/password', rateLimit({ windowMs: 15 * 60000, limit: 10, standardHeaders: 'draft-8', legacyHeaders: false }), asyncRoute(async (req, res) => {
     const input = z.object({ currentPassword: z.string().min(1).max(200), newPassword: z.string().min(12).max(200), confirmPassword: z.string().min(12).max(200) }).parse(req.body);
     if (input.newPassword !== input.confirmPassword) throw failure('The new passwords do not match.');
-    const [user] = await rows('SELECT password_hash FROM users WHERE id = ?', [req.user.id]);
-    if (!user || !(await verifyPassword(input.currentPassword, user.password_hash))) throw failure('Your current password is incorrect.', 401);
+    const token = randomBytes(32).toString('hex'), csrf = randomBytes(32).toString('hex');
+    const passwordHash = await hashPassword(input.newPassword);
     await transaction(async connection => {
-      await rows('UPDATE users SET password_hash = ? WHERE id = ?', [await hashPassword(input.newPassword), req.user.id], connection);
-      // Keep this verified browser signed in and revoke every other session.
-      await rows('DELETE FROM sessions WHERE user_id = ? AND csrf_token <> ?', [req.user.id, req.csrf], connection);
+      const [user] = await rows('SELECT password_hash FROM users WHERE id = ? FOR UPDATE', [req.user.id], connection);
+      if (!user || !(await verifyPassword(input.currentPassword, user.password_hash))) throw failure('Your current password is incorrect.', 401);
+      await rows('UPDATE users SET password_hash = ? WHERE id = ?', [passwordHash, req.user.id], connection);
+      await rows('DELETE FROM sessions WHERE user_id = ?', [req.user.id], connection);
+      await rows('INSERT INTO sessions (token_hash, user_id, csrf_token, expires_at) VALUES (?, ?, ?, DATE_ADD(UTC_TIMESTAMP(), INTERVAL 7 DAY))', [digest(token), req.user.id, csrf], connection);
     });
-    res.json({ ok: true });
+    res.cookie('gh_session', token, cookieOptions()).json({ ok: true, csrf });
   }));
   app.post('/api/auth/logout', asyncRoute(async (req, res) => {
     await rows('DELETE FROM sessions WHERE user_id = ? AND csrf_token = ?', [req.user.id, req.csrf]);
@@ -184,7 +191,7 @@ export async function createApp({ serveStatic = true, stripeClient, commerceSett
   }));
   app.get('/api/assets', asyncRoute(async (req, res) => res.json((await rows('SELECT * FROM assets WHERE user_id = ? ORDER BY created_at DESC', [req.user.id])).map(mapAsset))));
   const upload = multer({ dest: path.join(config.mediaDir, 'uploads'), limits: { fileSize: config.maxBytes, files: 1, fields: 1 } });
-  app.post('/api/assets', upload.single('audio'), asyncRoute(async (req, res) => {
+  app.post('/api/assets', audioUploadLimit(), guardedUpload('audio', upload.single('audio'), async (req, res) => {
     const file = req.file;
     if (!file) throw failure('Choose an audio file.');
     let stored;
@@ -194,14 +201,17 @@ export async function createApp({ serveStatic = true, stripeClient, commerceSett
       stored = path.join(config.mediaDir, storageKey);
       // Canonical lossless audio gives streaming WebM recordings a seekable duration,
       // strips non-audio streams, and keeps source playback consistent across browsers.
-      await run(config.ffmpeg, ['-hide_banner', '-y', '-i', file.path, '-map', '0:a:0', '-vn', '-t', '7201', '-ar', '44100', '-ac', '2', '-codec:a', 'flac', stored], 10 * 60 * 1000);
-      const duration = await probe(stored);
+      await run(config.ffmpeg, ['-hide_banner', '-y', '-protocol_whitelist', 'file,pipe', '-i', file.path, '-map', '0:a:0', '-vn', '-t', '7201', '-ar', '44100', '-ac', '2', '-threads', '2', '-fs', String(config.maxProcessedBytes + 1), '-codec:a', 'flac', stored], 10 * 60 * 1000);
       const { size } = await stat(stored);
+      if (size > config.maxProcessedBytes) throw failure('The processed recording exceeds the audio storage limit. Shorten the recording and retry.', 413);
+      const duration = await probe(stored);
       const filename = file.originalname.replace(/[\u0000-\u001f]/g, '').slice(0, 200) || 'Recording';
       await rows('INSERT INTO assets (id, user_id, filename, storage_key, mime, bytes, duration) VALUES (?, ?, ?, ?, ?, ?, ?)', [id, req.user.id, filename, storageKey, 'audio/flac', size, duration]);
       res.status(201).json({ id, name: filename, duration, bytes: size, url: `/api/assets/${id}/audio` });
     } catch (error) {
+      const oversized = stored && await stat(stored).then(details => details.size > config.maxProcessedBytes).catch(() => false);
       if (stored) await unlink(stored).catch(() => {});
+      if (oversized) throw failure('The processed recording exceeds the audio storage limit. Shorten the recording and retry.', 413);
       if (error.code === 'ENOENT') throw failure('Audio tools are unavailable. Ask the administrator to configure FFmpeg and ffprobe.', 503);
       if (!error.status) throw failure('This audio could not be read. Choose a valid WAV, MP3, M4A, OGG, FLAC or WebM recording.');
       throw error;
@@ -223,9 +233,12 @@ export async function createApp({ serveStatic = true, stripeClient, commerceSett
     const jobs = await rows('SELECT j.* FROM render_jobs j JOIN episodes e ON e.id = j.episode_id WHERE e.id = ? AND e.user_id = ? ORDER BY j.created_at DESC', [req.params.id, req.user.id]);
     res.json(jobs.map(mapJob));
   }));
-  app.post('/api/episodes/:id/render', asyncRoute(async (req, res) => {
+  app.post('/api/episodes/:id/render', rateLimit({ windowMs: 3600000, limit: 20, keyGenerator: req => req.user.id, standardHeaders: 'draft-8', legacyHeaders: false }), asyncRoute(async (req, res) => {
     const result = await transaction(async connection => {
       const query = (sql, values) => rows(sql, values, connection);
+      // Acquire the budget gate before any consistent reads so concurrent
+      // requests cannot reuse an older snapshot of the queue or storage usage.
+      await query('SELECT id FROM upload_gate WHERE id = 1 FOR UPDATE', []);
       const [episode] = await query('SELECT * FROM episodes WHERE id = ? AND user_id = ? FOR UPDATE', [req.params.id, req.user.id]);
       if (!episode) throw failure('Episode not found.', 404);
       const arrangement = json(episode.arrangement);
@@ -233,6 +246,11 @@ export async function createApp({ serveStatic = true, stripeClient, commerceSett
       await validateAssets(arrangement, req.user.id, query);
       const [existing] = await query('SELECT * FROM render_jobs WHERE episode_id = ? AND revision = ?', [episode.id, episode.version]);
       if (existing && existing.state !== 'failed') return existing;
+      const [pending] = await query("SELECT COUNT(*) AS jobs FROM render_jobs j JOIN episodes e ON e.id = j.episode_id WHERE e.user_id = ? AND j.state IN ('queued','running')", [req.user.id]);
+      if (Number(pending.jobs) >= 3) throw failure('You already have three renders waiting or running. Wait for one to finish.', 429);
+      const [queue] = await query("SELECT COUNT(*) AS jobs FROM render_jobs WHERE state IN ('queued','running')", []);
+      if (Number(queue.jobs) >= 50) throw failure('The audio queue is full. Retry when current renders finish.', 429);
+      if (await storageUsed(req.user.id, connection) + config.maxProcessedBytes > config.authorStorageBytes) throw failure('Your account storage limit has been reached. Contact the administrator.', 413);
       if (existing) {
         await query("UPDATE render_jobs SET state = 'queued', attempts = 0, error = NULL WHERE id = ?", [existing.id]);
         return { ...existing, state: 'queued', error: null };

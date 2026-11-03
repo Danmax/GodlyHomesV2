@@ -60,6 +60,10 @@ export async function testChannels({ createApp, rows, origin, fixture, claimJob,
   const list = await request(app).get('/api/public/episodes?channel=alice-family&series=family-rhythms');
   assert.deepEqual(list.body.map(item => item.title), ['Alice episode']);
   assert.equal(list.body[0].channel.authorName, 'Alice'); assert.equal(list.body[0].series.id, aliceSeries.id);
+  const mediaBeforePrivate = await request(app).get(`/media/${alice.episode.id}/${alice.jobId}.mp3`);
+  assert.equal(mediaBeforePrivate.status, 200);
+  assert.match(mediaBeforePrivate.headers['cache-control'], /private/);
+  assert.match(mediaBeforePrivate.headers['cache-control'], /no-cache/);
   assert.equal((await beth.agent.get(`/api/jobs/${alice.jobId}/audio`)).status, 404);
   for (const feedPath of ['/channels/alice-family/feed.xml', '/channels/alice-family/series/family-rhythms/feed.xml']) {
     const response = await request(app).get(feedPath);
@@ -76,6 +80,7 @@ export async function testChannels({ createApp, rows, origin, fixture, claimJob,
   assert.equal((await alice.mutate('put', '/api/channel').send(previous)).status, 409);
   assert.equal((await request(app).get(`/api/public/episodes/${alice.episode.id}`)).status, 404);
   assert.equal((await request(app).get(`/media/${alice.episode.id}/${alice.jobId}.mp3`)).status, 404);
+  assert.equal((await request(app).get(`/media/${alice.episode.id}/${alice.jobId}.mp3`).set('If-None-Match', mediaBeforePrivate.headers.etag)).status, 404);
   assert.equal((await request(app).get('/channels/alice-family/feed.xml')).status, 404);
   assert.equal((await request(app).get('/podcast/feed.xml')).text.includes('Alice episode'), false);
   aliceChannel = (await alice.mutate('put', '/api/channel').send({ ...aliceChannel, isPublic: true })).body;

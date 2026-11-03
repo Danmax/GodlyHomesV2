@@ -4,6 +4,8 @@ import { existsSync } from 'node:fs';
 import { mediaDirectory } from './media-path.js';
 
 const require = createRequire(import.meta.url);
+const storageMegabytes = Number(process.env.AUTHOR_STORAGE_MB || 5120);
+if (!Number.isSafeInteger(storageMegabytes) || storageMegabytes < 1) throw new Error('AUTHOR_STORAGE_MB must be a positive integer.');
 function audioTool(name, environmentValue) {
   // Explicit executable paths always win. Local installs include portable tools;
   // the production Docker image supplies its own system FFmpeg/ffprobe.
@@ -26,4 +28,8 @@ export const config = {
   ffmpeg: audioTool('ffmpeg', process.env.FFMPEG_PATH),
   ffprobe: audioTool('ffprobe', process.env.FFPROBE_PATH),
   maxBytes: 512 * 1024 * 1024,
+  maxProcessedBytes: 512 * 1024 * 1024,
+  authorStorageBytes: storageMegabytes * 1024 * 1024,
+  maxConcurrentAudioUploads: 2,
+  maxConcurrentImageUploads: 4,
 };

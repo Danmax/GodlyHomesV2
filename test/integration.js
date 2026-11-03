@@ -52,7 +52,7 @@ try {
   const login = await agent.post('/api/auth/login').set('Origin', origin).send({ email: 'test@godlyhomes.com', password });
   assert.equal(login.status, 200);
   assert.ok(login.headers['set-cookie'][0].includes('HttpOnly'));
-  const csrf = login.body.csrf;
+  let csrf = login.body.csrf;
   const mutate = (method, url) => agent[method](url).set('Origin', origin).set('X-CSRF-Token', csrf);
   assert.equal((await agent.post('/api/episodes').set('Origin', origin)).status, 403);
   const created = await mutate('post', '/api/episodes');
@@ -243,6 +243,8 @@ try {
   await testCommerce({ createApp, rows, origin, password });
   const { testChannels } = await import('./channels-integration.js');
   await testChannels({ createApp, rows, origin, fixture, claimJob, processJob });
+  const { testUploadSecurity } = await import('./upload-security-integration.js');
+  await testUploadSecurity({ rows, userId, otherId, mutate, fixture, arrangement });
 
   if (process.env.RUN_BROWSER === '1') {
     const { chromium } = await import('playwright');
@@ -496,7 +498,13 @@ try {
   assert.equal((await mutate('post', '/api/auth/password').send({ currentPassword: 'wrong', newPassword: 'a-new-password-123', confirmPassword: 'a-new-password-123' })).status, 401);
   assert.equal((await mutate('post', '/api/auth/password').send({ currentPassword: password, newPassword: 'short', confirmPassword: 'short' })).status, 400);
   const replacementPassword = 'a-new-password-123';
-  assert.equal((await mutate('post', '/api/auth/password').send({ currentPassword: password, newPassword: replacementPassword, confirmPassword: replacementPassword })).status, 200);
+  const changedPassword = await mutate('post', '/api/auth/password').send({ currentPassword: password, newPassword: replacementPassword, confirmPassword: replacementPassword });
+  assert.equal(changedPassword.status, 200);
+  assert.notEqual(changedPassword.body.csrf, csrf);
+  assert.notEqual(changedPassword.headers['set-cookie'][0].split(';')[0], login.headers['set-cookie'][0].split(';')[0]);
+  assert.equal((await request(app).get('/api/auth/me').set('Cookie', login.headers['set-cookie'][0].split(';')[0])).status, 401);
+  assert.equal((await mutate('post', '/api/auth/logout')).status, 403);
+  csrf = changedPassword.body.csrf;
   assert.equal((await request(app).post('/api/auth/login').set('Origin', origin).send({ email: 'test@godlyhomes.com', password })).status, 401);
   assert.equal((await request(app).post('/api/auth/login').set('Origin', origin).send({ email: 'test@godlyhomes.com', password: replacementPassword })).status, 200);
   assert.equal((await mutate('post', '/api/auth/logout')).status, 200);

@@ -1,4 +1,5 @@
 import mysql from 'mysql2/promise';
+import { databaseTLS } from './database-tls.js';
 
 export const db = mysql.createPool({
   host: process.env.DB_HOST || '127.0.0.1',
@@ -7,6 +8,7 @@ export const db = mysql.createPool({
   password: process.env.DB_PASSWORD || '',
   database: process.env.DB_NAME || 'godly_homes',
   ...(process.env.DB_SOCKET ? { socketPath: process.env.DB_SOCKET } : {}),
+  ...databaseTLS(),
   connectionLimit: 8,
   charset: 'utf8mb4',
   timezone: 'Z',

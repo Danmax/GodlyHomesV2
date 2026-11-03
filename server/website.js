@@ -1,12 +1,13 @@
 import express from 'express';
 import multer from 'multer';
 import path from 'node:path';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile, unlink } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { rows, json } from './db.js';
 import { config } from './config.js';
 import { requireAdmin } from './auth.js';
 import { documentSchemas, entrySchema, resourceSchema, versionSchema } from './website-validation.js';
+import { guardedUpload, imageUploadLimit } from './upload-budget.js';
 
 const route = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
@@ -65,7 +66,7 @@ websiteAdmin.delete('/entries/:kind/:id', route(async (req, res) => {
 
 const imageUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 1, fields: 0 } }).single('image');
 export const imageRoutes = express.Router();
-imageRoutes.post('/images', (req, res, next) => imageUpload(req, res, error => error ? next(fail('Choose one PNG, JPEG, or WebP image smaller than 5 MB.')) : next()), route(async (req, res) => {
+imageRoutes.post('/images', imageUploadLimit(), guardedUpload('image', imageUpload, async (req, res) => {
   const file = req.file;
   if (!file) throw fail('Choose an image to upload.');
   const data = file.buffer;
@@ -82,6 +83,8 @@ imageRoutes.post('/images', (req, res, next) => imageUpload(req, res, error => e
   const directory = path.join(config.mediaDir, 'images'); await mkdir(directory, { recursive: true });
   const filename = `${randomUUID()}.${extension}`;
   await writeFile(path.join(directory, filename), data, { flag: 'wx', mode: 0o644 });
+  try { await rows('INSERT INTO image_uploads (filename, user_id, bytes) VALUES (?, ?, ?)', [filename, req.user.id, data.length]); }
+  catch (error) { await unlink(path.join(directory, filename)).catch(() => {}); throw error; }
   res.status(201).json({ url: `/images/${filename}` });
 }));
 websiteAdmin.use(imageRoutes);
