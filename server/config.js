@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { existsSync } from 'node:fs';
+import { mediaDirectory } from './media-path.js';
 
 const require = createRequire(import.meta.url);
 function audioTool(name, environmentValue) {
@@ -20,7 +21,8 @@ export const config = {
   production: process.env.NODE_ENV === 'production',
   port: Number(process.env.PORT || 3001),
   origin: new URL(process.env.APP_URL || 'http://localhost:5173').origin,
-  mediaDir: path.resolve(process.env.MEDIA_DIR || './data/media'),
+  mediaDir: mediaDirectory(process.env.MEDIA_DIR, path.resolve(import.meta.dirname, '..')),
+  remoteMediaOrigin: process.env.MEDIA_REMOTE_URL ? new URL(process.env.MEDIA_REMOTE_URL).origin : null,
   ffmpeg: audioTool('ffmpeg', process.env.FFMPEG_PATH),
   ffprobe: audioTool('ffprobe', process.env.FFPROBE_PATH),
   maxBytes: 512 * 1024 * 1024,

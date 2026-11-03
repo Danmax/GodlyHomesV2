@@ -1,10 +1,10 @@
 // Fully isolated database/server/media; never connects to the project's configured database.
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtemp, mkdir, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, unlink } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import mysql from 'mysql2/promise';
 import request from 'supertest';
@@ -20,7 +20,7 @@ async function command(file, args) {
   let output = ''; child.stderr.on('data', d => { output += d; });
   return new Promise((resolve, reject) => { child.on('error', reject); child.on('close', code => code === 0 ? resolve() : reject(new Error(output))); });
 }
-let daemon, connection, db;
+let daemon, connection, db, mediaServer;
 try {
   await command(mysqld, ['--no-defaults', '--initialize-insecure', `--datadir=${data}`]);
   daemon = spawn(mysqld, ['--no-defaults', `--datadir=${data}`, `--socket=${socket}`, '--skip-networking', '--mysqlx=OFF', `--pid-file=${root}/mysql.pid`, `--log-error=${root}/mysql.log`], { stdio: 'ignore' });
@@ -88,9 +88,63 @@ try {
   const [finished] = await rows('SELECT * FROM render_jobs WHERE id = ?', [job.id]);
   assert.equal(finished.state, 'ready', finished.error);
   assert.ok(finished.bytes > 1000);
+  const renderedFile = path.join(process.env.MEDIA_DIR, finished.output_key);
+  const renderedBytes = await readFile(renderedFile);
+  const renderedHash = createHash('sha256').update(renderedBytes).digest('hex');
+  const restore = () => mutate('put', `/api/jobs/${job.id}/audio`).set('Content-Type', 'application/octet-stream').set('X-Content-SHA256', renderedHash).send(renderedBytes);
+  await unlink(renderedFile);
+  const missingAudio = await agent.get(`/api/jobs/${job.id}/audio`);
+  assert.equal(missingAudio.status, 404);
+  assert.ok(!JSON.stringify(missingAudio.body).includes(process.env.MEDIA_DIR));
+  assert.equal((await mutate('post', `/api/episodes/${episode.id}/publish`).send({ jobId: job.id })).status, 409);
+  assert.equal((await request(app).get('/api/public/episodes')).body.length, 0);
+  assert.equal((await stranger.put(`/api/jobs/${job.id}/audio`).set('Origin', origin).set('X-CSRF-Token', otherLogin.body.csrf).set('Content-Type', 'application/octet-stream').set('X-Content-SHA256', renderedHash).send(renderedBytes)).status, 404);
+  assert.equal((await mutate('put', `/api/jobs/${job.id}/audio`).set('Content-Type', 'application/octet-stream').set('X-Content-SHA256', '0'.repeat(64)).send(renderedBytes)).status, 400);
+  assert.equal((await agent.get(`/api/jobs/${job.id}/audio`)).status, 404);
+  assert.equal((await restore()).status, 200);
+  assert.deepEqual(await readFile(renderedFile), renderedBytes);
+  assert.equal((await restore()).status, 200); // Repeated transfers are idempotent.
+  const conflicting = Buffer.from(renderedBytes); conflicting[conflicting.length - 1] ^= 1;
+  assert.equal((await mutate('put', `/api/jobs/${job.id}/audio`).set('Content-Type', 'application/octet-stream').set('X-Content-SHA256', createHash('sha256').update(conflicting).digest('hex')).send(conflicting)).status, 409);
+  assert.deepEqual(await readFile(renderedFile), renderedBytes);
+  const [sourceRecord] = await rows('SELECT * FROM assets WHERE id = ?', [asset.id]);
+  const sourcePath = path.join(process.env.MEDIA_DIR, sourceRecord.storage_key);
+  const sourceBytes = await readFile(sourcePath);
+  await unlink(sourcePath);
+  assert.equal((await mutate('put', `/api/assets/${asset.id}/audio`).set('Content-Type', 'application/octet-stream').set('X-Content-SHA256', createHash('sha256').update(sourceBytes).digest('hex')).send(sourceBytes)).status, 200);
+  assert.deepEqual(await readFile(sourcePath), sourceBytes);
+  // A second app shares MySQL but has a separate filesystem, as on Hostinger.
+  const remoteMedia = path.join(root, 'remote-media');
+  mediaServer = spawn(process.execPath, ['--input-type=module', '-e', `
+    import { createApp } from './server/app.js';
+    import { config } from './server/config.js';
+    import { db } from './server/db.js';
+    const app = await createApp();
+    const server = app.listen(0, '127.0.0.1', () => {
+      config.origin = 'http://127.0.0.1:' + server.address().port;
+      process.send({ origin: config.origin });
+    });
+    process.on('SIGTERM', () => server.close(async () => { await db.end(); process.exit(0); }));
+  `], { env: { ...process.env, MEDIA_DIR: remoteMedia, MEDIA_REMOTE_URL: '' }, stdio: ['ignore', 'ignore', 'pipe', 'ipc'] });
+  const remoteOrigin = await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('Remote media test server did not start.')), 10000);
+    mediaServer.once('message', message => { clearTimeout(timer); resolve(message.origin); });
+    mediaServer.once('error', error => { clearTimeout(timer); reject(error); });
+  });
+  const { syncEpisodeMedia } = await import('../server/media.js');
+  const { config: mediaConfig } = await import('../server/config.js');
+  const cookie = login.headers['set-cookie'].map(value => value.split(';')[0]).join('; ');
+  await syncEpisodeMedia({ job: finished, assets: [sourceRecord], origin: remoteOrigin, cookie, csrf });
+  assert.deepEqual(await readFile(path.join(remoteMedia, sourceRecord.storage_key)), sourceBytes);
+  assert.deepEqual(await readFile(path.join(remoteMedia, finished.output_key)), renderedBytes);
+  await unlink(path.join(remoteMedia, finished.output_key));
+  mediaConfig.remoteMediaOrigin = remoteOrigin;
   const privateAudio = await agent.get(`/api/jobs/${job.id}/audio`).set('Range', 'bytes=0-99');
   assert.equal(privateAudio.status, 206);
   assert.equal((await mutate('post', `/api/episodes/${episode.id}/publish`).send({ jobId: job.id })).status, 200);
+  assert.deepEqual(await readFile(path.join(remoteMedia, finished.output_key)), renderedBytes);
+  mediaConfig.remoteMediaOrigin = null;
+  mediaServer.kill('SIGTERM'); await new Promise(resolve => mediaServer.once('exit', resolve)); mediaServer = null;
   assert.equal((await mutate('post', `/api/episodes/${episode.id}/publish`).send({ jobId: job.id })).status, 200);
   const publicEpisodes = await request(app).get('/api/public/episodes');
   assert.equal(publicEpisodes.body.length, 1);
@@ -116,7 +170,7 @@ try {
   assert.equal((await rows('SELECT state FROM render_jobs WHERE id = ?', [replacement.id]))[0].state, 'ready');
   assert.equal((await request(app).post('/api/subscribe').set('Origin', origin).send({ email: 'reader@example.com', consent: false })).status, 400);
   assert.equal((await request(app).post('/api/subscribe').set('Origin', origin).send({ email: 'reader@example.com', consent: true })).status, 200);
-  console.log('PASS: MySQL authentication, CSRF, ownership, uploads, drafts, concurrency, FFmpeg render, publish, RSS, byte-range audio, unpublish and subscriptions.');
+  console.log('PASS: MySQL authentication, CSRF, ownership, uploads, drafts, FFmpeg render, checksum-verified source/MP3 recovery, missing-file publication prevention, publish, RSS, byte-range audio, unpublish and subscriptions.');
 
   if (process.env.RUN_BROWSER === '1') {
     const { chromium } = await import('playwright');
@@ -213,6 +267,7 @@ try {
 } catch (error) {
   console.error(error); process.exitCode = 1;
 } finally {
+  if (mediaServer) { mediaServer.kill('SIGTERM'); await new Promise(resolve => mediaServer.once('exit', resolve)); }
   await db?.end();
   await connection?.end();
   if (daemon) { daemon.kill('SIGTERM'); await new Promise(resolve => daemon.once('close', resolve)); }

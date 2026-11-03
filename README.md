@@ -30,6 +30,14 @@ Local development automatically uses the installed `ffmpeg-static` and `ffprobe-
 
 For a local production build, `npm run build`, set `APP_URL` to your served origin, then `npm start` and `npm run worker`. Microphone capture needs localhost or HTTPS.
 
+### Sharing a database between local development and Hostinger
+
+A shared MySQL database does not share audio files. If the local studio uses the production database, set `MEDIA_REMOTE_URL=https://godlyhomes.com` **locally only**. Publishing then copies the render and its source files to the hosted app before updating the public episode. Transfers use the current owner's session, verify SHA-256 and byte length, and never overwrite a different existing file. The hosted app must use the same database and have this version of the API deployed.
+
+To restore an already-published local render, configure `ADMIN_EMAIL` and `ADMIN_PASSWORD` locally for the episode owner, then run `npm run media:sync -- --job <render-job-id>`. The command transfers existing files, leaves the publication unchanged, and signs out its temporary session. Remove the administrator password after use. Originals and exports remain private except for the current published MP3 URL.
+
+On Hostinger, relative `MEDIA_DIR` paths are resolved under the domain's `storage/` directory outside `hbuilds/versions/`, so future releases keep using the same media. Absolute paths (including the Docker media volume) are respected. Back up this storage with MySQL. Existing files from earlier release directories need restoration before those releases are removed.
+
 ## Verification
 
 ```sh

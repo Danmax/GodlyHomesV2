@@ -5,6 +5,19 @@ import { hashPassword, verifyPassword } from '../server/auth.js';
 import { arrangementSchema, validateAssets } from '../server/validation.js';
 import { feed } from '../server/feed.js';
 import { buildMix } from '../server/audio.js';
+import { mediaDirectory } from '../server/media-path.js';
+import { mediaFile } from '../server/media.js';
+
+test('Hostinger media survives release changes and invalid storage keys are rejected', () => {
+  const first = '/home/account/domains/example.com/hbuilds/versions/first/nodejs';
+  const second = '/home/account/domains/example.com/hbuilds/versions/second/nodejs';
+  assert.equal(mediaDirectory('./data/media', first), '/home/account/domains/example.com/storage/data/media');
+  assert.equal(mediaDirectory('./data/media', first), mediaDirectory('./data/media', second));
+  assert.equal(mediaDirectory('/data/media', first), '/data/media');
+  assert.equal(mediaDirectory('./data/media', '/local/project', '/local/project'), '/local/project/data/media');
+  assert.throws(() => mediaFile('../private.txt'), /invalid/);
+  assert.throws(() => mediaFile('/etc/passwd'), /invalid/);
+});
 
 test('password hashes use unique salts and reject incorrect passwords', async () => {
   const hash = await hashPassword('a sufficiently long password');

@@ -12,6 +12,7 @@ import { authenticate, cookieOptions, digest, verifyPassword } from './auth.js';
 import { episodeSchema, validateAssets } from './validation.js';
 import { probe, run } from './audio.js';
 import { feed } from './feed.js';
+import { receiveMedia, requireMediaFile, syncEpisodeMedia } from './media.js';
 
 const asyncRoute = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const failure = (message, status = 400) => Object.assign(new Error(message), { status });
@@ -19,6 +20,10 @@ const publicQuery = `SELECT p.*, j.bytes, j.duration FROM publications p JOIN re
 const mapEpisode = e => ({ id: e.id, title: e.title, description: e.description, number: e.episode_number, version: e.version, arrangement: json(e.arrangement), updatedAt: e.updated_at });
 const mapAsset = a => ({ id: a.id, name: a.filename, duration: a.duration, bytes: Number(a.bytes), url: `/api/assets/${a.id}/audio` });
 const mapJob = j => ({ id: j.id, revision: j.revision, state: j.state, error: j.error, createdAt: j.created_at, duration: j.duration, url: j.state === 'ready' ? `/api/jobs/${j.id}/audio` : null });
+async function audioPath(key, bytes) {
+  try { return await requireMediaFile(key, bytes); }
+  catch (error) { if (error.status === 409) throw failure('The audio file is not stored on this server.', 404); throw error; }
+}
 
 export async function createApp({ serveStatic = true } = {}) {
   await mkdir(path.join(config.mediaDir, 'uploads'), { recursive: true });
@@ -63,7 +68,8 @@ export async function createApp({ serveStatic = true } = {}) {
     const [publication] = await rows(`${publicQuery} WHERE p.episode_id = ?`, [req.params.episodeId]);
     if (!publication || req.params.file !== `${publication.job_id}.mp3`) throw failure('Episode audio not found.', 404);
     const [job] = await rows('SELECT output_key FROM render_jobs WHERE id = ?', [publication.job_id]);
-    res.type('audio/mpeg').set('Cache-Control', 'public, max-age=3600').sendFile(path.join(config.mediaDir, job.output_key));
+    const file = await audioPath(job.output_key, publication.bytes);
+    res.type('audio/mpeg').set('Cache-Control', 'public, max-age=3600').sendFile(file);
   }));
   app.post('/api/subscribe', rateLimit({ windowMs: 3600000, limit: 10, legacyHeaders: false }), asyncRoute(async (req, res) => {
     const { email, consent } = z.object({ email: z.email().max(254), consent: z.literal(true) }).parse(req.body);
@@ -126,7 +132,14 @@ export async function createApp({ serveStatic = true } = {}) {
   app.get('/api/assets/:id/audio', asyncRoute(async (req, res) => {
     const [asset] = await rows('SELECT * FROM assets WHERE id = ? AND user_id = ?', [req.params.id, req.user.id]);
     if (!asset) throw failure('Audio source not found.', 404);
-    res.type(asset.mime).set('Content-Disposition', 'inline').sendFile(path.join(config.mediaDir, asset.storage_key));
+    const file = await audioPath(asset.storage_key, asset.bytes);
+    res.type(asset.mime).set('Content-Disposition', 'inline').sendFile(file);
+  }));
+  app.put('/api/assets/:id/audio', asyncRoute(async (req, res) => {
+    const [asset] = await rows('SELECT * FROM assets WHERE id = ? AND user_id = ?', [req.params.id, req.user.id]);
+    if (!asset) throw failure('Audio source not found.', 404);
+    await receiveMedia(req, asset.storage_key, asset.bytes);
+    res.json({ ok: true });
   }));
   app.get('/api/episodes/:id/jobs', asyncRoute(async (req, res) => {
     const jobs = await rows('SELECT j.* FROM render_jobs j JOIN episodes e ON e.id = j.episode_id WHERE e.id = ? AND e.user_id = ? ORDER BY j.created_at DESC', [req.params.id, req.user.id]);
@@ -155,10 +168,32 @@ export async function createApp({ serveStatic = true } = {}) {
   app.get('/api/jobs/:id/audio', asyncRoute(async (req, res) => {
     const [job] = await rows("SELECT j.* FROM render_jobs j JOIN episodes e ON e.id = j.episode_id WHERE j.id = ? AND e.user_id = ? AND j.state = 'ready'", [req.params.id, req.user.id]);
     if (!job) throw failure('Rendered audio is not available.', 404);
-    res.type('audio/mpeg').sendFile(path.join(config.mediaDir, job.output_key));
+    const file = await audioPath(job.output_key, job.bytes);
+    res.type('audio/mpeg').sendFile(file);
+  }));
+  app.put('/api/jobs/:id/audio', asyncRoute(async (req, res) => {
+    const [job] = await rows("SELECT j.* FROM render_jobs j JOIN episodes e ON e.id = j.episode_id WHERE j.id = ? AND e.user_id = ? AND j.state = 'ready'", [req.params.id, req.user.id]);
+    if (!job) throw failure('Rendered audio is not available.', 404);
+    await receiveMedia(req, job.output_key, job.bytes);
+    res.json({ ok: true });
   }));
   app.post('/api/episodes/:id/publish', asyncRoute(async (req, res) => {
     const { jobId } = z.object({ jobId: z.uuid() }).parse(req.body);
+    const [prepared] = await rows("SELECT j.*, e.version AS current_version FROM render_jobs j JOIN episodes e ON e.id = j.episode_id WHERE j.id = ? AND e.id = ? AND e.user_id = ? AND j.state = 'ready'", [jobId, req.params.id, req.user.id]);
+    if (!prepared) throw failure('Review a completed render before publishing.');
+    if (prepared.revision !== prepared.current_version) throw failure('This draft has changed. Render and review its current version first.', 409);
+    await requireMediaFile(prepared.output_key, prepared.bytes);
+    if (config.remoteMediaOrigin) {
+      const arrangement = json(prepared.snapshot).arrangement;
+      const ids = [...new Set([...arrangement.segments.map(s => s.assetId), arrangement.music.assetId].filter(Boolean))];
+      const assets = [];
+      for (const id of ids) {
+        const [asset] = await rows('SELECT * FROM assets WHERE id = ? AND user_id = ?', [id, req.user.id]);
+        if (!asset) throw failure('An audio source is unavailable.');
+        assets.push(asset);
+      }
+      await syncEpisodeMedia({ job: prepared, assets, origin: config.remoteMediaOrigin, cookie: req.headers.cookie, csrf: req.csrf });
+    }
     await transaction(async connection => {
       const query = (sql, values) => rows(sql, values, connection);
       const [episode] = await query('SELECT * FROM episodes WHERE id = ? AND user_id = ? FOR UPDATE', [req.params.id, req.user.id]);
@@ -166,6 +201,7 @@ export async function createApp({ serveStatic = true } = {}) {
       const [job] = await query("SELECT * FROM render_jobs WHERE id = ? AND episode_id = ? AND state = 'ready'", [jobId, episode.id]);
       if (!job) throw failure('Review a completed render before publishing.');
       if (job.revision !== episode.version) throw failure('This draft has changed. Render and review its current version first.', 409);
+      await requireMediaFile(job.output_key, job.bytes);
       const snapshot = json(job.snapshot);
       await query(`INSERT INTO publications (episode_id, job_id, title, description, episode_number) VALUES (?, ?, ?, ?, ?)
         ON DUPLICATE KEY UPDATE job_id = VALUES(job_id), title = VALUES(title), description = VALUES(description), episode_number = VALUES(episode_number)`, [episode.id, job.id, snapshot.title, snapshot.description, snapshot.number]);
@@ -181,7 +217,9 @@ export async function createApp({ serveStatic = true } = {}) {
     app.use(express.static(path.resolve('dist')));
     app.get(['/', '/about', '/resources', '/resources/:slug', '/store', '/studio', '/podcast/:id'], (_req, res) => res.sendFile(path.resolve('dist/index.html')));
   }
-  app.use((error, _req, res, _next) => {
+  app.use((error, _req, res, next) => {
+    if (res.headersSent) return next(error);
+    if (error.code === 'ENOENT') return res.status(404).type('json').json({ error: 'The audio file is not stored on this server.' });
     if (error instanceof z.ZodError) return res.status(400).json({ error: error.issues[0]?.message || 'Check your input.' });
     if (error instanceof multer.MulterError) return res.status(400).json({ error: 'Choose one audio file smaller than 512 MB.' });
     const status = error.status || 500;

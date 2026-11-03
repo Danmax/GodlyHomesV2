@@ -13,6 +13,7 @@
     "worker": "node --env-file-if-exists=.env server/worker.js",
     "db:migrate": "node --env-file-if-exists=.env server/migrate.js",
     "admin:create": "node --env-file-if-exists=.env server/create-admin.js",
+    "media:sync": "node --env-file-if-exists=.env server/sync-media.js",
     "test": "node --test test/*.test.js",
     "test:integration": "node test/integration.js",
     "test:pages": "node test/public-pages.js"
