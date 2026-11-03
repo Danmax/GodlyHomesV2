@@ -81,7 +81,7 @@ try {
   assert.equal((await stranger.get('/api/admin/documents')).status, 403);
   assert.equal((await stranger.post('/api/admin/entries/product').set('Origin', origin).set('X-CSRF-Token', otherLogin.body.csrf).send({})).status, 403);
   const websiteBefore = (await request(app).get('/api/public/website')).body;
-  assert.equal(websiteBefore.resources.length, 6); assert.equal(websiteBefore.products.length, 0);
+  assert.equal(websiteBefore.resources.length, 0); assert.equal(websiteBefore.products.length, 0);
   const documents = (await agent.get('/api/admin/documents')).body;
   const about = documents.find(document => document.key === 'about');
   const updateAbout = { version: about.version, data: { ...about.data, title: 'Faith in our everyday lives.' } };
@@ -90,9 +90,10 @@ try {
   assert.equal((await mutate('put', '/api/admin/documents/about').send(updateAbout)).status, 409);
   const currentAbout = (await agent.get('/api/admin/documents')).body.find(document => document.key === 'about');
   assert.equal((await mutate('put', '/api/admin/documents/about').send({ version: currentAbout.version, data: about.data })).status, 200);
-  const resourceData = { title: 'A test resource', description: 'Test resource description', category: 'Faith', type: 'Guide', minutes: 3, introduction: 'A thoughtful introduction.', scripture: '', steps: [['Begin', 'Read and reflect.']], prompts: ['Something to remember:'] };
+  const resourceData = { title: 'A test reflexion', description: 'Test resource description', type: 'Article', imageUrl: 'https://example.com/resource.jpg', imageAlt: 'A family reading together', externalUrl: 'https://example.com/helpful-resource' };
   let resourceEntry = (await mutate('post', '/api/admin/entries/resource').send({ slug: 'test-resource', status: 'draft', sortOrder: 10, data: resourceData })).body;
   assert.ok(resourceEntry.id);
+  assert.equal((await mutate('post', '/api/admin/entries/resource').send({ slug: 'unsafe-resource', status: 'draft', sortOrder: 0, data: { ...resourceData, externalUrl: 'javascript:alert(1)' } })).status, 400);
   assert.ok(!(await request(app).get('/api/public/website')).body.resources.some(r => r.slug === resourceEntry.slug));
   const publishedResource = await mutate('put', `/api/admin/entries/resource/${resourceEntry.id}`).send({ ...resourceEntry, status: 'published' });
   assert.equal(publishedResource.status, 200); resourceEntry = publishedResource.body;

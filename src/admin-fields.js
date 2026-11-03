@@ -11,7 +11,7 @@ export const documentFields = {
     ['missionLabel', 'Mission label'], ['missionTitle', 'Mission heading', 'textarea'], ['missionParagraphs', 'Mission paragraphs', 'paragraphs'], ['valuesTitle', 'Values heading'], ['values', 'Values', 'values'],
     ['connectTitle', 'Closing heading'], ['connectText', 'Closing text', 'textarea'], ['contactTitle', 'Contact card heading'], ['contactText', 'Contact card text', 'textarea'],
   ],
-  resources: [['title', 'Resources page headline'], ['description', 'Resources page introduction', 'textarea']],
+  resources: [['title', 'Reflexions page headline'], ['description', 'Reflexions page introduction', 'textarea']],
   store: [['title', 'Store headline'], ['description', 'Store introduction', 'textarea'], ['emptyTitle', 'Empty store heading', 'textarea'], ['emptyText', 'Empty store message', 'textarea']],
   newsletter: [['title', 'Signup heading', 'textarea'], ['description', 'Signup description', 'textarea'], ['buttonLabel', 'Signup button text']],
 };

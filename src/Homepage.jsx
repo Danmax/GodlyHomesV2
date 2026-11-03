@@ -192,7 +192,7 @@ function Podcast() { return <PodcastSection />; }
 
 function Resources() {
   const { resources, loading, error } = useSiteContent();
-  return <section id="resources" className="py-24 px-5 lg:px-8"><div className="max-w-7xl mx-auto"><p className="eyebrow">Small steps, steady grace</p><div className="row between"><h2 className="serif text-5xl font-semibold">A little help for today.</h2><a className="btn" href="/resources">Browse all resources →</a></div>{loading ? <p role="status">Loading resources…</p> : error ? <p className="message">Resources are temporarily unavailable.</p> : <div className="resource-grid">{resources.slice(0, 3).map(resource => <ResourceCard key={resource.id} resource={resource} />)}</div>}</div></section>;
+  return <section id="resources" className="py-24 px-5 lg:px-8"><div className="max-w-7xl mx-auto"><p className="eyebrow">Thoughtful links for your home</p><div className="row between"><h2 className="serif text-5xl font-semibold">Reflexions for today.</h2><a className="btn" href="/resources">Browse all reflexions →</a></div>{loading ? <p role="status">Loading reflexions…</p> : error ? <p className="message">Reflexions are temporarily unavailable.</p> : <div className="resource-grid">{resources.slice(0, 3).map(resource => <ResourceCard key={resource.id} resource={resource} />)}</div>}</div></section>;
 }
 
 function Newsletter() { return <NewsletterSection />; }

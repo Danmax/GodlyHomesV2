@@ -313,3 +313,6 @@ audio { width: 100%; margin-top: 14px; }
 .spotify-link img { width: 28px; height: 28px; object-fit: contain; flex-shrink: 0; }
 .spotify-link strong { display: block; font-size: 14px; }
 .spotify-show-name { display: block; font-size: 11px; font-weight: 400; margin-top: 2px; }
+.resource-link-image { display: block; height: 220px; overflow: hidden; background: #dfe5d6; }
+.resource-link-image img { display: block; width: 100%; height: 100%; object-fit: cover; transition: transform .25s ease; }
+.resource-link-image:hover img, .resource-link-image:focus-visible img { transform: scale(1.03); }

@@ -7,7 +7,7 @@ import { feed } from '../server/feed.js';
 import { buildMix } from '../server/audio.js';
 import { mediaDirectory } from '../server/media-path.js';
 import { mediaFile } from '../server/media.js';
-import { safeHref, productSchema } from '../server/website-validation.js';
+import { safeHref, productSchema, resourceSchema } from '../server/website-validation.js';
 
 test('Website links reject executable URLs and products require valid prices', () => {
   assert.equal(safeHref.safeParse('javascript:alert(1)').success, false);
@@ -15,6 +15,10 @@ test('Website links reject executable URLs and products require valid prices', (
   assert.equal(safeHref.safeParse('/resources').success, true);
   assert.equal(safeHref.safeParse('https://example.com/checkout').success, true);
   assert.equal(productSchema.safeParse({ title: 'Item', description: 'Description', kind: 'physical', priceCents: -10, currency: 'USD', imageUrl: '', imageAlt: '', checkoutUrl: '' }).success, false);
+  const reflexion = { title: 'A helpful article', type: 'Article', description: 'A short description.', imageUrl: 'https://example.com/image.jpg', imageAlt: 'Open Bible and notebook', externalUrl: 'https://example.com/article' };
+  assert.equal(resourceSchema.safeParse(reflexion).success, true);
+  assert.equal(resourceSchema.safeParse({ ...reflexion, externalUrl: '/resources' }).success, false);
+  assert.equal(resourceSchema.safeParse({ ...reflexion, imageUrl: '' }).success, false);
 });
 
 test('Hostinger media survives release changes and invalid storage keys are rejected', () => {

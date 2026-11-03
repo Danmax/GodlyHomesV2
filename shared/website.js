@@ -3,12 +3,12 @@ export const defaultDocuments = {
     name: 'Godly Homes', tagline: 'Peace for the home you’re building.', email: 'hello@godlyhomes.com',
     logoUrl: '', logoAlt: 'Godly Homes — Family, Motherhood, Ministry',
     footerText: 'Questions, ideas, or a story to share?\nWe’d love to hear from you.',
-    navigation: [{ label: 'Home', href: '/' }, { label: 'About', href: '/about' }, { label: 'Resources', href: '/resources' }, { label: 'Podcast', href: '/#podcast' }, { label: 'Store', href: '/store' }],
+    navigation: [{ label: 'Home', href: '/' }, { label: 'About', href: '/about' }, { label: 'Reflexions', href: '/resources' }, { label: 'Podcast', href: '/#podcast' }, { label: 'Store', href: '/store' }],
   },
   home: {
     title: 'Peace for the home you’re building.',
     description: 'Practical help and steady encouragement for Christian mothers raising children to know and serve God — one ordinary, holy day at a time.',
-    primaryLabel: 'Listen to the podcast', primaryHref: '/#podcast', secondaryLabel: 'Explore resources', secondaryHref: '/resources',
+    primaryLabel: 'Listen to the podcast', primaryHref: '/#podcast', secondaryLabel: 'Explore reflexions', secondaryHref: '/resources',
     announcementEnabled: true, announcementText: 'A little encouragement for the home you’re building.', announcementLabel: 'Explore the podcast', announcementHref: '/#podcast',
     podcastTitle: 'A voice of encouragement\nin your ordinary days.',
     podcastDescription: 'Honest conversations about faith, family, and building a home with intention. Listen here, wherever the day finds you.',
@@ -28,7 +28,7 @@ export const defaultDocuments = {
     connectTitle: 'Start with one small thing.', connectText: 'Read a reflection, try a simple home rhythm, or listen to a conversation as you go about your day.',
     contactTitle: 'We’d love to hear from you.', contactText: 'Have a question or an idea for a future conversation?',
   },
-  resources: { title: 'Small steps. Steady grace.', description: 'A little encouragement for your faith, your family, and the home you’re building. Free to read, save, and return to.' },
+  resources: { title: 'Reflexions for the journey.', description: 'A collection of meaningful external resources for faith, family, and the home you’re building.' },
   store: {
     title: 'Thoughtful things for ordinary days.', description: 'Digital resources and physical goods for bringing faith, care, and intention into the life of your home.',
     emptyTitle: 'Good things take\na little tending.', emptyText: 'We’re preparing a store for both digital resources and physical products. We’ll share the collection here when it’s ready.',

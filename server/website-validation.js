@@ -16,9 +16,9 @@ export const documentSchemas = {
   newsletter: z.object({ title: short, description: copy, buttonLabel: short }),
 };
 export const resourceSchema = z.object({
-  title: short, category: z.string().trim().min(1).max(40), type: z.string().trim().min(1).max(40), minutes: z.number().int().min(1).max(120),
-  description: z.string().trim().min(1).max(1000), introduction: copy, scripture: z.string().max(300).optional().default(''),
-  steps: z.array(z.tuple([short, z.string().trim().min(1).max(4000)])).max(20), prompts: z.array(z.string().trim().min(1).max(500)).max(30),
+  title: short, type: z.string().trim().min(1).max(40), description: z.string().trim().min(1).max(1000),
+  imageUrl: imageUrl.refine(value => value !== '', 'Add an image.'), imageAlt: z.string().trim().min(1).max(250),
+  externalUrl: safeHref.refine(value => value.startsWith('https://'), 'Use a full HTTPS link to the external resource.'),
 });
 export const productSchema = z.object({
   title: short, description: copy, kind: z.enum(['digital', 'physical']), priceCents: z.number().int().min(0).max(99999999).nullable(),

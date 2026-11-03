@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { rows, json } from './db.js';
 import { config } from './config.js';
 import { requireAdmin } from './auth.js';
-import { documentSchemas, entrySchema, versionSchema } from './website-validation.js';
+import { documentSchemas, entrySchema, resourceSchema, versionSchema } from './website-validation.js';
 
 const route = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
@@ -17,7 +17,12 @@ export async function publicWebsite() {
   const documents = await rows('SELECT document_key, data FROM website_documents');
   const entries = await rows("SELECT kind, id, slug, data FROM website_entries WHERE status = 'published' ORDER BY sort_order, created_at");
   return { documents: Object.fromEntries(documents.map(d => [d.document_key, json(d.data)])),
-    resources: entries.filter(e => e.kind === 'resource').map(e => ({ ...json(e.data), id: e.id, slug: e.slug })),
+    // Only fully-configured external links are public. Legacy guides remain in
+    // Website Admin as drafts until their destination and image are supplied.
+    resources: entries.filter(e => e.kind === 'resource').flatMap(e => {
+      const parsed = resourceSchema.safeParse(json(e.data));
+      return parsed.success ? [{ ...parsed.data, id: e.id, slug: e.slug }] : [];
+    }),
     products: entries.filter(e => e.kind === 'product').map(e => ({ ...json(e.data), id: e.id, slug: e.slug })) };
 }
 
