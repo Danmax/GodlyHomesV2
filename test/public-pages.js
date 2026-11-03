@@ -25,6 +25,7 @@ try {
   }
   browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: true });
   const page = await browser.newPage({ reducedMotion: 'reduce' });
+  await page.route('https://example.com/**', route => route.abort());
   await page.route('**/api/public/episodes', route => route.fulfill({ json: [] }));
   await page.route('**/api/public/website', route => route.fulfill({ json: { documents: defaultDocuments, resources: reflexions, products: [] } }));
   const errors = [];
@@ -51,9 +52,9 @@ try {
   await page.goto(`${origin}/resources`);
   await page.locator('.resource-card').first().waitFor();
   assert.equal(await page.locator('.resource-card').count(), 2);
-  await page.getByLabel('Search resources').fill('quiet');
+  await page.getByLabel('Search reflexions').fill('quiet');
   assert.equal(await page.locator('.resource-card').count(), 1);
-  await page.getByLabel('Search resources').fill('no-such-resource');
+  await page.getByLabel('Search reflexions').fill('no-such-resource');
   await page.getByRole('heading', { name: 'No resources found.' }).waitFor();
   await page.getByRole('button', { name: 'Show all reflexions' }).click();
   assert.equal(await page.locator('.resource-card').count(), 2);

@@ -50,7 +50,9 @@ export async function testCommerce({ createApp, rows, origin, password }) {
   stripeClient.prices.list = async () => { throw { type: 'StripePermissionError', statusCode: 403 }; };
   assert.equal((await admin.get('/api/admin/commerce/status')).body.connectionError.code, 'permission_denied');
   stripeClient.prices.list = async () => { throw { type: 'StripeConnectionError' }; };
-  assert.equal((await admin.get('/api/admin/commerce/status')).body.connectionError.code, 'connection_failed');
+  const unavailable = await admin.get('/api/admin/commerce/status');
+  assert.equal(unavailable.status, 200, JSON.stringify(unavailable.body));
+  assert.equal(unavailable.body.connectionError.code, 'connection_failed');
   stripeClient.prices.list = listPrices;
   stripeClient.accounts.retrieve = async () => { throw { type: 'StripePermissionError', statusCode: 403 }; };
   const restrictedKey = await admin.get('/api/admin/commerce/status');

@@ -5,7 +5,7 @@ Solo podcast recording and publishing for **godlyhomes.com**. The original two J
 ## Included
 
 - Responsive public homepage, real episode audio players, episode pages and `/podcast/feed.xml`.
-- About (`/about`), searchable Resources (`/resources`) with six guides, downloadable text worksheets and print layouts, and Store (`/store`) for upcoming digital resources and physical products. Shared desktop/mobile navigation connects the pages. Purchases are not enabled until a catalog and checkout are configured.
+- About (`/about`), searchable Reflexions (`/resources`) linking to selected external resources, and Store (`/store`) for upcoming digital resources and physical products. Shared desktop/mobile navigation connects the pages. Purchases are not enabled until a catalog and checkout are configured.
 - Private studio accounts, scrypt password hashes, database-backed sessions, origin/CSRF checks and per-user ownership.
 - MySQL episode drafts with debounced autosave, explicit save, revision conflicts and undo during an editing session.
 - Solo microphone capture, input meter, pause/resume, local IndexedDB chunk backups and recovery/download after interruption or upload failure.
@@ -14,7 +14,7 @@ Solo podcast recording and publishing for **godlyhomes.com**. The original two J
 - Published versions remain unchanged during later draft edits. Unpublishing removes the public player/feed access.
 - Episode owners can delete a draft or published episode from the list or editor after confirmation. Deletion removes the episode, its publication and render jobs; original/shared source audio remains available. Queued jobs are removed and running workers discard results for deleted jobs.
 - Newsletter email collection with explicit consent. **Email delivery is not configured**; the UI confirms saved signup only.
-- Website Admin through the same login: edit About, homepage and announcement copy, resource/store page headings, logo, navigation, contact/footer and signup text. Create, edit, publish, unpublish and delete resources and digital/physical store items, including images, prices and checkout links.
+- Website Admin through the same login: edit About, homepage and announcement copy, Reflexions/store page headings, logo, navigation, contact/footer and signup text. Create, edit, publish, unpublish and delete external Reflexions and digital/physical store items, including images, prices and checkout links.
 
 The runtime is React/Vite + Express + `mysql2`, using versioned SQL migrations. This keeps the existing React components usable without a framework migration. Audio is converted into lossless FLAC sources on a persistent volume; database rows contain paths/metadata and edit instructions, not audio blobs. A separate worker renders MP3 exports. This is the single-VPS MVP storage implementation; S3/CDN integration is a later deployment option.
 
@@ -34,11 +34,11 @@ For a local production build, `npm run build`, set `APP_URL` to your served orig
 
 ### Website Admin
 
-Run migrations before upgrading the application. Migration `002_website_admin.sql` adds admin/publisher roles and website content tables, and copies the existing About/settings and six resources into MySQL once. Subsequent migrations do not reset edited or deleted content. Existing accounts default to podcast publisher access.
+Run migrations before upgrading the application. Migration `002_website_admin.sql` adds admin/publisher roles and website content tables. Migration `004_reflexions.sql` converts the public Resource area to Reflexions and saves the earlier internal guides as private drafts so their external links and images can be added in Website Admin. Existing accounts default to podcast publisher access.
 
 To give the configured owner account website editing access, set `ADMIN_EMAIL` to that existing account and run `npm run admin:grant`. This changes only that account's role and preserves its credentials. New accounts created by `npm run admin:create` have the admin role. Admin access is checked from MySQL on every private request; being signed in as a publisher is insufficient.
 
-Sign in at `/studio` and choose **Website Admin**, or open `/admin`. Page/settings forms use **Save and publish**. Resource/store entries have Draft and Published visibility; drafts are excluded from public APIs and pages. Version checks prevent an old browser tab from overwriting a newer edit. Text is rendered as plain text with line breaks rather than executable HTML.
+Sign in at `/studio` and choose **Website Admin**, or open `/admin`. Page/settings forms use **Save and publish**. Each Reflexion has a title, short description, type, image, image description and HTTPS external URL; published links open in a new tab. Reflexion/store drafts are excluded from public APIs and pages. Version checks prevent an old browser tab from overwriting a newer edit. Text is rendered as plain text with line breaks rather than executable HTML.
 
 Images accept PNG, JPEG and WebP up to 5 MB and use persistent media storage. A local admin configured with `MEDIA_REMOTE_URL` forwards uploads to the hosted site using the same authenticated session. Products can use the Stripe integration below or an external HTTPS checkout link. Products without either offer a contact action. Email signup editing changes the form copy, not email delivery configuration.
 
@@ -80,7 +80,7 @@ The integration script initializes a **new temporary MySQL instance with network
 
 The optional browser pass uses installed Chrome at `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome` (override with `CHROME_PATH`) and fake microphone input. It exercises recording/upload/autosave/render/review/publish, reload persistence and mobile overflow, with screenshots in ignored `test-results/`. Build before running it.
 
-`npm run test:pages` uses the same Chrome executable and a temporary production server to check public routes, navigation, page titles, layouts at 1440/390/320 pixels, resource filters/search, downloads and print styling. It does not connect to a database. Run the build first.
+`npm run test:pages` uses the same Chrome executable and a temporary production server to check public routes, navigation, page titles, layouts at 1440/390/320 pixels, and external Reflexion link/search behavior. It does not connect to a database. Run the build first.
 
 ## Hostinger VPS deployment
 
