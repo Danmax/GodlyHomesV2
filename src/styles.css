@@ -42,6 +42,9 @@ h1,h2,h3,p { margin-top: 0; }
 .episode-card { width: 100%; text-align: left; display: flex; align-items: center; gap: 22px; }
 .episode-card:hover { border-color: #76866b; }
 .episode-card h2 { margin-bottom: 5px; font-size: 25px; }
+.episode-open { display: flex; align-items: center; gap: 22px; flex: 1; min-width: 0; text-align: left; border: 0; background: transparent; color: inherit; }
+.episode-open h2 { overflow-wrap: anywhere; }
+.episode-open > div { min-width: 0; }
 .episode-icon { flex-shrink: 0; width: 48px; height: 64px; border-radius: 40px 40px 12px 12px; display: grid; place-items: center; background: #dfe5d6; color: #55644c; }
 .badge { border-radius: 99px; padding: 6px 11px; color: #55644c; background: #dfe5d6; font-size: 11px; font-weight: 700; white-space: nowrap; }
 .badge.draft { color: #995b47; background: #f1dcd2; }
@@ -96,6 +99,7 @@ audio { width: 100%; margin-top: 14px; }
   .studio-header-inner { gap: 8px; }
 }
 @media(max-width: 360px) { .studio-brand .site-logo { width: 175px; } .site-logo { width: 210px; } }
+@media(max-width: 600px) { .episode-card { flex-wrap: wrap; gap: 12px; } .episode-open { gap: 14px; flex-basis: 100%; } .episode-card > .badge { margin-left: 62px; } .episode-card > .btn { margin-left: auto; } }
 
 /* Public pages */
 .public-site { color: #2f2b27; background: #fbf7f1; }

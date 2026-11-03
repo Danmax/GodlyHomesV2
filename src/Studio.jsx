@@ -23,7 +23,7 @@ export default function Studio() {
   const [auth, setAuth] = useState(undefined), [episodes, setEpisodes] = useState([]), [assets, setAssets] = useState([]);
   const [draft, setDraft] = useState(null), [error, setError] = useState(''), [busy, setBusy] = useState(false), [recording, setRecording] = useState(false);
   const [dirty, setDirty] = useState(false), [saveState, setSaveState] = useState('Saved'), [recovery, setRecovery] = useState([]), [history, setHistory] = useState([]);
-  const current = useRef(null), saveQueue = useRef(Promise.resolve()), dirtyRef = useRef(false), savingCount = useRef(0);
+  const current = useRef(null), saveQueue = useRef(Promise.resolve()), dirtyRef = useRef(false), savingCount = useRef(0), deletingId = useRef(null);
   const setRecordingStable = useCallback(value => setRecording(value), []);
   const refreshRecovery = useCallback(async () => { if (auth?.user) { try { setRecovery(await recoveries(auth.user.id)); } catch { setError('This browser cannot open recording recovery storage. Imported audio remains available.'); } } }, [auth]);
   const load = async () => {
@@ -44,6 +44,7 @@ export default function Studio() {
   };
   const change = next => {
     const previous = current.current;
+    if (!previous || deletingId.current === previous.id) return;
     const value = typeof next === 'function' ? next(clone(previous)) : next;
     setHistory(h => [...h.slice(-29), clone(previous)]);
     current.current = value; setDraft(value); dirtyRef.current = true; setDirty(true); setSaveState('Unsaved changes');
@@ -51,7 +52,7 @@ export default function Studio() {
   const save = useCallback(() => {
     savingCount.current++;
     const task = saveQueue.current.catch(() => {}).then(async () => {
-      if (!current.current || !dirtyRef.current) return current.current;
+      if (!current.current || !dirtyRef.current || deletingId.current === current.current.id) return current.current;
       const snapshot = clone(current.current); setSaveState('Saving…');
       try {
         const result = await api(`/api/episodes/${snapshot.id}`, { method: 'PUT', body: { version: snapshot.version, title: snapshot.title, description: snapshot.description, number: snapshot.number, arrangement: snapshot.arrangement } });
@@ -74,6 +75,23 @@ export default function Studio() {
     return () => clearTimeout(timer);
   }, [draft, dirty, save]);
   const action = async fn => { setBusy(true); setError(''); try { await fn(); } catch (e) { setError(e.message); } finally { setBusy(false); } };
+  const deleteEpisode = ep => {
+    if (busy || recording) return;
+    if (!confirm(`Delete “${ep.title}”?\n\nThis permanently removes the episode, its edits and render history from the studio, website, and RSS feed. Original audio files stay in your library.\n\nThis cannot be undone.`)) return;
+    action(async () => {
+      deletingId.current = ep.id;
+      try {
+        await saveQueue.current.catch(() => {});
+        await api(`/api/episodes/${ep.id}`, { method: 'DELETE' });
+        setError('');
+        setEpisodes(list => list.filter(item => item.id !== ep.id));
+        if (current.current?.id === ep.id) {
+          current.current = null; setDraft(null); dirtyRef.current = false;
+          setDirty(false); setHistory([]); setSaveState('Saved');
+        }
+      } finally { deletingId.current = null; }
+    });
+  };
   const addAsset = async asset => {
     setAssets(list => [asset, ...list.filter(a => a.id !== asset.id)]);
     change(ep => ({ ...ep, arrangement: { ...ep.arrangement, segments: [...ep.arrangement.segments, { id: crypto.randomUUID(), assetId: asset.id, name: asset.name.startsWith("Take ") ? `Take ${ep.arrangement.segments.length + 1}` : asset.name, start: 0, end: asset.duration, gain: 1, fadeIn: 0, fadeOut: 0 }] } }));
@@ -98,9 +116,9 @@ export default function Studio() {
   return <div className="studio"><header className="studio-header"><div className="studio-header-inner"><Brand /><div className="header-spacer" /><span className="user-email small muted">{auth.user.email}</span><button className="btn icon" aria-label="Sign out" disabled={busy || recording || dirty} onClick={() => action(async () => { await api('/api/auth/logout', { method: 'POST' }); setAuth(null); current.current = null; setDraft(null); setEpisodes([]); setAssets([]); })}><LogOut size={17} /></button></div></header><main className="studio-main">
     {error && <div className="message error" role="alert">{error}<button onClick={() => setError('')}>Dismiss</button></div>}
     {recovery.length > 0 && !recording && <section className="card" style={{ marginBottom: 24 }}><h2>Recover recordings</h2><p className="small muted">These takes are backed up on this device. Restore one to its original episode or download a copy.</p>{recovery.map(s => <div className="row between" style={{ marginTop: 12 }} key={s.id}><span className="small">{new Date(s.createdAt).toLocaleString()}</span><div className="row"><button className="btn" disabled={busy} onClick={() => restore(s)}><RefreshCw size={14} />Restore</button><button className="btn icon" aria-label="Download recovery" onClick={() => action(async () => downloadBlob(await recoveryBlob(s), `recording-backup.${s.mime.includes('mp4') ? 'm4a' : s.mime.includes('ogg') ? 'ogg' : 'webm'}`))}><Download size={15} /></button><button className="btn icon danger" aria-label="Discard recovery" onClick={() => { if (confirm('Permanently remove this local backup? Download it first if you need a copy.')) action(async () => { await removeRecovery(s.id); await refreshRecovery(); }); }}><Trash2 size={15} /></button></div></div>)}</section>}
-    {!draft ? <><div className="row between"><div><p className="eyebrow">Godly Homes Podcast</p><h1>Your voice has a home.</h1><p className="muted">A little preparation. A good conversation. Something worth sharing.</p></div><button className="btn accent" disabled={busy} onClick={() => action(async () => { const ep = await api('/api/episodes', { method: 'POST' }); setEpisodes(list => [ep, ...list]); select(ep); })}><Plus size={17} />New episode</button></div><div className="cards">{episodes.length ? episodes.map(ep => <button className="card episode-card" key={ep.id} onClick={() => select(ep)}><span className="episode-icon"><Radio size={22} /></span><div style={{ flex: 1 }}><h2>{ep.title}</h2><span className="muted small">{ep.arrangement.segments.length} segments · {formatTime(length(ep))} · {new Date(ep.updatedAt).toLocaleDateString()}</span></div><span className={`badge ${ep.publication ? '' : 'draft'}`}>{ep.publication ? 'Published' : 'Draft'}</span></button>) : <div className="card empty"><Mic size={32} style={{ margin: '0 auto 20px', color: '#76866b' }} /><h2>Your first episode starts here.</h2><p className="muted small">Create an episode, check your microphone, and record your first take.</p></div>}</div></> : <>
+    {!draft ? <><div className="row between"><div><p className="eyebrow">Godly Homes Podcast</p><h1>Your voice has a home.</h1><p className="muted">A little preparation. A good conversation. Something worth sharing.</p></div><button className="btn accent" disabled={busy} onClick={() => action(async () => { const ep = await api('/api/episodes', { method: 'POST' }); setEpisodes(list => [ep, ...list]); select(ep); })}><Plus size={17} />New episode</button></div><div className="cards">{episodes.length ? episodes.map(ep => <article className="card episode-card" key={ep.id}><button className="episode-open" disabled={busy} onClick={() => select(ep)}><span className="episode-icon"><Radio size={22} /></span><div style={{ flex: 1 }}><h2>{ep.title}</h2><span className="muted small">{ep.arrangement.segments.length} segments · {formatTime(length(ep))} · {new Date(ep.updatedAt).toLocaleDateString()}</span></div></button><span className={`badge ${ep.publication ? '' : 'draft'}`}>{ep.publication ? 'Published' : 'Draft'}</span><button className="btn icon danger" aria-label={`Delete episode ${ep.title}`} title="Delete episode" disabled={busy} onClick={() => deleteEpisode(ep)}><Trash2 size={17} /></button></article>) : <div className="card empty"><Mic size={32} style={{ margin: '0 auto 20px', color: '#76866b' }} /><h2>Your first episode starts here.</h2><p className="muted small">Create an episode, check your microphone, and record your first take.</p></div>}</div></> : <>
       <button className="btn ghost" disabled={recording || busy || dirty} onClick={() => select(null)}><ArrowLeft size={15} />All episodes</button>
-      <div className="row between" style={{ marginTop: 18 }}><div><p className="eyebrow">Your recording suite</p><h1>{draft.title}</h1><p className="small muted">{draft.arrangement.segments.length} segments · {formatTime(length(draft))} · <span role="status">{saveState}</span></p></div><div className="row"><button className="btn" disabled={!history.length || recording || busy} onClick={() => { const previous = history[history.length - 1]; setHistory(h => h.slice(0, -1)); current.current = { ...previous, version: current.current.version }; setDraft(current.current); dirtyRef.current = true; setDirty(true); }}>Undo</button><button className="btn" disabled={!dirty || busy || recording} onClick={() => action(save)}><Save size={15} />Save changes</button></div></div>
+      <div className="row between" style={{ marginTop: 18 }}><div><p className="eyebrow">Your recording suite</p><h1>{draft.title}</h1><p className="small muted">{draft.arrangement.segments.length} segments · {formatTime(length(draft))} · <span role="status">{saveState}</span></p></div><div className="row"><button className="btn danger" disabled={busy || recording} onClick={() => deleteEpisode(draft)}><Trash2 size={15} />Delete episode</button><button className="btn" disabled={!history.length || recording || busy} onClick={() => { const previous = history[history.length - 1]; setHistory(h => h.slice(0, -1)); current.current = { ...previous, version: current.current.version }; setDraft(current.current); dirtyRef.current = true; setDirty(true); }}>Undo</button><button className="btn" disabled={!dirty || busy || recording} onClick={() => action(save)}><Save size={15} />Save changes</button></div></div>
       <Workspace key={draft.id} draft={draft} assets={assets} change={change} save={save} busy={busy} action={action} addAsset={addAsset} recording={recording} setRecording={setRecordingStable} userId={auth.user.id} onRecovery={refreshRecovery} onPublished={async publication => { current.current = { ...current.current, publication }; setDraft(current.current); await load(); }} />
     </>}
   </main></div>;

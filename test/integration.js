@@ -221,11 +221,11 @@ try {
       await page.getByRole('heading', { name: 'Your episode is live.' }).waitFor();
       await page.screenshot({ path: 'test-results/studio-publish.png', fullPage: true });
       await page.reload();
-      await page.getByRole('button', { name: /Browser recorded episode/ }).waitFor();
+      await page.locator('.episode-open').filter({ hasText: 'Browser recorded episode' }).waitFor();
       await page.setViewportSize({ width: 390, height: 844 }); await page.goto(url);
       await page.screenshot({ path: 'test-results/home-mobile.png', fullPage: true });
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
-      await page.goto(`${url}/studio`); await page.getByRole('button', { name: /Browser recorded episode/ }).click();
+      await page.goto(`${url}/studio`); await page.locator('.episode-open').filter({ hasText: 'Browser recorded episode' }).click();
       await page.screenshot({ path: 'test-results/studio-mobile.png', fullPage: true });
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
       // Simulate a connection failure after recording. The raw take must survive reload.
@@ -258,10 +258,64 @@ try {
       await page.getByText('3 segments ready to arrange.').waitFor();
       await page.getByRole('heading', { name: 'Recover recordings' }).waitFor({ state: 'hidden' });
       assert.equal((await rows('SELECT COUNT(*) AS count FROM assets WHERE user_id = ?', [userId]))[0].count, assetsBeforeRecovery);
+      page.once('dialog', dialog => dialog.dismiss());
+      await page.getByRole('button', { name: 'Delete episode', exact: true }).click();
+      await page.getByRole('heading', { name: 'Browser recorded episode', exact: true }).waitFor();
+      page.once('dialog', dialog => {
+        assert.match(dialog.message(), /Original audio files stay in your library/);
+        return dialog.accept();
+      });
+      await page.getByRole('button', { name: 'Delete episode', exact: true }).click();
+      await page.getByRole('heading', { name: 'Your voice has a home.' }).waitFor();
+      assert.equal(await page.locator('.episode-open').filter({ hasText: 'Browser recorded episode' }).count(), 0);
+      await page.reload();
+      await page.getByRole('heading', { name: 'Your voice has a home.' }).waitFor();
+      assert.equal(await page.locator('.episode-open').filter({ hasText: 'Browser recorded episode' }).count(), 0);
+      // Delete a draft directly from the list, without opening its workspace.
+      await page.getByRole('button', { name: 'New episode', exact: true }).click();
+      await page.getByRole('button', { name: 'All episodes', exact: true }).click();
+      page.once('dialog', dialog => dialog.accept());
+      await page.getByRole('button', { name: 'Delete episode Untitled episode', exact: true }).click();
+      await page.getByRole('button', { name: 'Delete episode Untitled episode', exact: true }).waitFor({ state: 'hidden' });
       assert.deepEqual(errors, []);
       console.log('PASS: Desktop/mobile browser, real MediaRecorder, FLAC/MP3 playback, upload/save, render/review/publish, reload persistence, failed-upload recovery after reload, no page errors or horizontal overflow.');
     } finally { config.origin = origin; await browser?.close(); await new Promise(resolve => server.close(resolve)); }
   }
+  // Delete a published episode, leaving its source available to another draft.
+  const keeper = (await mutate('post', '/api/episodes')).body;
+  assert.equal((await mutate('put', `/api/episodes/${keeper.id}`).send({ ...keeper, arrangement })).status, 200);
+  assert.equal((await mutate('post', `/api/episodes/${episode.id}/publish`).send({ jobId: replacement.id })).status, 200);
+  const beforeDeletion = (await request(app).get('/api/public/episodes')).body.find(e => e.id === episode.id);
+  assert.ok(beforeDeletion);
+  assert.equal((await request(app).delete(`/api/episodes/${episode.id}`).set('Origin', origin)).status, 401);
+  assert.equal((await agent.delete(`/api/episodes/${episode.id}`).set('Origin', origin)).status, 403);
+  assert.equal((await stranger.delete(`/api/episodes/${episode.id}`).set('Origin', origin).set('X-CSRF-Token', otherLogin.body.csrf)).status, 404);
+  const exportKeys = (await rows('SELECT output_key FROM render_jobs WHERE episode_id = ?', [episode.id])).map(j => j.output_key).filter(Boolean);
+  assert.equal((await mutate('delete', `/api/episodes/${episode.id}`)).status, 200);
+  assert.equal((await rows('SELECT id FROM episodes WHERE id = ?', [episode.id])).length, 0);
+  assert.equal((await rows('SELECT id FROM render_jobs WHERE episode_id = ?', [episode.id])).length, 0);
+  assert.equal((await rows('SELECT episode_id FROM publications WHERE episode_id = ?', [episode.id])).length, 0);
+  assert.equal((await request(app).get(beforeDeletion.url)).status, 404);
+  assert.ok(!(await request(app).get('/podcast/feed.xml')).text.includes(episode.id));
+  assert.equal((await agent.get(`/api/jobs/${replacement.id}/audio`)).status, 404);
+  assert.equal((await agent.get(asset.url)).status, 200);
+  assert.ok((await agent.get('/api/episodes')).body.some(e => e.id === keeper.id));
+  for (const key of exportKeys) await assert.rejects(readFile(path.join(process.env.MEDIA_DIR, key)), { code: 'ENOENT' });
+  assert.equal((await mutate('delete', `/api/episodes/${episode.id}`)).status, 404);
+  const queued = (await mutate('post', '/api/episodes')).body;
+  assert.equal((await mutate('put', `/api/episodes/${queued.id}`).send({ ...queued, arrangement })).status, 200);
+  const queuedJob = (await mutate('post', `/api/episodes/${queued.id}/render`)).body;
+  assert.equal((await mutate('delete', `/api/episodes/${queued.id}`)).status, 200);
+  assert.equal((await rows('SELECT id FROM render_jobs WHERE id = ?', [queuedJob.id])).length, 0);
+  const active = (await mutate('post', '/api/episodes')).body;
+  assert.equal((await mutate('put', `/api/episodes/${active.id}`).send({ ...active, arrangement })).status, 200);
+  await mutate('post', `/api/episodes/${active.id}/render`);
+  const activeJob = await claimJob(); assert.equal(activeJob.episode_id, active.id);
+  assert.equal((await mutate('delete', `/api/episodes/${active.id}`)).status, 200);
+  await processJob(activeJob);
+  assert.equal((await rows('SELECT id FROM episodes WHERE id = ?', [active.id])).length, 0);
+  await assert.rejects(readFile(path.join(process.env.MEDIA_DIR, `exports/${activeJob.id}-${activeJob.lease_token}.mp3`)), { code: 'ENOENT' });
+  console.log('PASS: Owner-only episode deletion, CSRF, published-feed/media removal, render cleanup, shared-source retention, queued/running render cancellation.');
   assert.equal((await mutate('post', '/api/auth/logout')).status, 200);
   assert.equal((await agent.get('/api/episodes')).status, 401);
 } catch (error) {

@@ -12,7 +12,7 @@ import { authenticate, cookieOptions, digest, verifyPassword } from './auth.js';
 import { episodeSchema, validateAssets } from './validation.js';
 import { probe, run } from './audio.js';
 import { feed } from './feed.js';
-import { receiveMedia, requireMediaFile, syncEpisodeMedia } from './media.js';
+import { receiveMedia, requireMediaFile, syncEpisodeMedia, mediaFile } from './media.js';
 
 const asyncRoute = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const failure = (message, status = 400) => Object.assign(new Error(message), { status });
@@ -94,6 +94,25 @@ export async function createApp({ serveStatic = true } = {}) {
     await rows('INSERT INTO episodes (id, user_id, title, description, arrangement) VALUES (?, ?, ?, ?, ?)', [id, req.user.id, 'Untitled episode', '', JSON.stringify(arrangement)]);
     const [episode] = await rows('SELECT * FROM episodes WHERE id = ?', [id]);
     res.status(201).json(mapEpisode(episode));
+  }));
+  app.delete('/api/episodes/:id', asyncRoute(async (req, res) => {
+    const outputs = await transaction(async connection => {
+      const query = (sql, values) => rows(sql, values, connection);
+      const [episode] = await query('SELECT id FROM episodes WHERE id = ? AND user_id = ? FOR UPDATE', [req.params.id, req.user.id]);
+      if (!episode) throw failure('Episode not found.', 404);
+      const jobs = await query('SELECT output_key FROM render_jobs WHERE episode_id = ? FOR UPDATE', [episode.id]);
+      await query('DELETE FROM publications WHERE episode_id = ?', [episode.id]);
+      await query('DELETE FROM render_jobs WHERE episode_id = ?', [episode.id]);
+      await query('DELETE FROM episodes WHERE id = ?', [episode.id]);
+      return jobs.map(job => job.output_key).filter(Boolean);
+    });
+    // Originals may be shared by other episodes. Only remove this episode's
+    // exports from this server; running workers discard results for deleted jobs.
+    for (const key of outputs) {
+      try { await unlink(mediaFile(key)); }
+      catch (error) { if (error.code !== 'ENOENT') console.error('Could not remove deleted episode export:', error.code || error.message); }
+    }
+    res.json({ ok: true });
   }));
   app.put('/api/episodes/:id', asyncRoute(async (req, res) => {
     const input = episodeSchema.parse(req.body);

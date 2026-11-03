@@ -12,6 +12,7 @@ Solo podcast recording and publishing for **godlyhomes.com**. The original two J
 - Audio import, source preview/waveform for smaller files, trim/split/reorder, fades, gain and optional looping music with voice ducking.
 - Durable background render jobs with leases, heartbeat, interrupted-job recovery, FFmpeg two-pass loudness normalization, MP3 review and explicit publishing.
 - Published versions remain unchanged during later draft edits. Unpublishing removes the public player/feed access.
+- Episode owners can delete a draft or published episode from the list or editor after confirmation. Deletion removes the episode, its publication and render jobs; original/shared source audio remains available. Queued jobs are removed and running workers discard results for deleted jobs.
 - Newsletter email collection with explicit consent. **Email delivery is not configured**; the UI confirms saved signup only.
 
 The runtime is React/Vite + Express + `mysql2`, using versioned SQL migrations. This keeps the existing React components usable without a framework migration. Audio is converted into lossless FLAC sources on a persistent volume; database rows contain paths/metadata and edit instructions, not audio blobs. A separate worker renders MP3 exports. This is the single-VPS MVP storage implementation; S3/CDN integration is a later deployment option.
