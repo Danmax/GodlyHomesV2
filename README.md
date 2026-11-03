@@ -5,6 +5,7 @@ Solo podcast recording and publishing for **godlyhomes.com**. The original two J
 ## Included
 
 - Responsive public homepage, real episode audio players, episode pages and `/podcast/feed.xml`.
+- About (`/about`), searchable Resources (`/resources`) with six guides, downloadable text worksheets and print layouts, and Store (`/store`) for upcoming digital resources and physical products. Shared desktop/mobile navigation connects the pages. Purchases are not enabled until a catalog and checkout are configured.
 - Private studio accounts, scrypt password hashes, database-backed sessions, origin/CSRF checks and per-user ownership.
 - MySQL episode drafts with debounced autosave, explicit save, revision conflicts and undo during an editing session.
 - Solo microphone capture, input meter, pause/resume, local IndexedDB chunk backups and recovery/download after interruption or upload failure.
@@ -34,6 +35,7 @@ For a local production build, `npm run build`, set `APP_URL` to your served orig
 ```sh
 npm test
 npm run build
+npm run test:pages
 npm run test:integration
 RUN_BROWSER=1 npm run test:integration
 ```
@@ -41,6 +43,8 @@ RUN_BROWSER=1 npm run test:integration
 The integration script initializes a **new temporary MySQL instance with networking disabled**, creates test users/audio, verifies the API and real FFmpeg output, and removes its data afterward. It never uses `.env` database settings. Set `MYSQLD_PATH` if it is not `/opt/homebrew/bin/mysqld`. MySQL initialization needs an ordinary user with permission to start that binary. Some macOS sandboxes prevent its initialization.
 
 The optional browser pass uses installed Chrome at `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome` (override with `CHROME_PATH`) and fake microphone input. It exercises recording/upload/autosave/render/review/publish, reload persistence and mobile overflow, with screenshots in ignored `test-results/`. Build before running it.
+
+`npm run test:pages` uses the same Chrome executable and a temporary production server to check public routes, navigation, page titles, layouts at 1440/390/320 pixels, resource filters/search, downloads and print styling. It does not connect to a database. Run the build first.
 
 ## Hostinger VPS deployment
 

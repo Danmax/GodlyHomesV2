@@ -179,7 +179,7 @@ export async function createApp({ serveStatic = true } = {}) {
   app.use('/api', (_req, res) => res.status(404).json({ error: 'Endpoint not found.' }));
   if (serveStatic) {
     app.use(express.static(path.resolve('dist')));
-    app.get(['/', '/studio', '/podcast/:id'], (_req, res) => res.sendFile(path.resolve('dist/index.html')));
+    app.get(['/', '/about', '/resources', '/resources/:slug', '/store', '/studio', '/podcast/:id'], (_req, res) => res.sendFile(path.resolve('dist/index.html')));
   }
   app.use((error, _req, res, _next) => {
     if (error instanceof z.ZodError) return res.status(400).json({ error: error.issues[0]?.message || 'Check your input.' });

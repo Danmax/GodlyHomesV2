@@ -1,5 +1,5 @@
 import { PodcastSection, NewsletterSection } from "./PublicPodcast.jsx";
-import Logo from './Logo.jsx';
+import SiteLayout from './SiteLayout.jsx';
 import { useState } from "react";
 import {
   Search, Menu, X, Play, Pause, SkipBack, SkipForward, BookOpen, Home,
@@ -76,9 +76,6 @@ const SceneBranch = () => (
 );
 
 /* ---------- Data ---------- */
-const NAV = ["Our approach", "Podcast", "Resources", "Studio"];
-const NAV_LINKS = { "Our approach": "#approach", Podcast: "#podcast", Resources: "#resources", Studio: "/studio" };
-
 const PILLARS = [
   { icon: BookOpen, title: "Scripture for ordinary days", body: "Small moments to reflect, pray, and begin again.", more: "Start with the quiet beginning below: read Psalm 23 and pray for each member of your household.", tint: T.sageSoft },
   { icon: Home, title: "Gentle home rhythms", body: "Simple, practical steps for a calmer household.", more: "Try the home reset below. Choose one surface, one load of laundry, and one meal. There’s grace for the rest.", tint: T.blushSoft },
@@ -106,42 +103,6 @@ function Announcement() {
   );
 }
 
-function Header() {
-  const [menu, setMenu] = useState(false);
-  return (
-    <header className="sticky top-0 z-30 backdrop-blur" style={{ background: "rgba(251,247,241,.88)", borderBottom: `1px solid ${T.taupeSoft}` }}>
-      <div className="max-w-7xl mx-auto px-5 lg:px-8 min-h-28 flex items-center gap-6">
-        <Logo />
-
-        <nav className="hidden lg:flex items-center gap-7 text-sm font-medium" style={{ color: T.ink }}>
-          {NAV.map((l) => (
-            <a key={l} href={NAV_LINKS[l]} className="transition-colors hover:text-black">{l}</a>
-          ))}
-        </nav>
-
-        <div className="ml-auto hidden md:flex items-center gap-3">
-          <a href="#join" className="rounded-full px-5 h-10 inline-flex items-center text-sm font-semibold transition-transform hover:scale-105" style={{ background: T.blush, color: T.cream }}>
-            Join community
-          </a>
-        </div>
-
-        <button className="ml-auto md:ml-0 lg:hidden p-2" onClick={() => setMenu(!menu)} aria-label="Toggle menu" aria-expanded={menu}>
-          {menu ? <X /> : <Menu />}
-        </button>
-      </div>
-
-      {menu && (
-        <div className="lg:hidden px-5 pb-6" style={{ borderTop: `1px solid ${T.taupeSoft}` }}>
-          <nav className="flex flex-col pt-4">
-            {NAV.map((l) => <a key={l} href={NAV_LINKS[l]} onClick={() => setMenu(false)} className="py-3 text-base" style={{ borderBottom: `1px solid ${T.taupeSoft}` }}>{l}</a>)}
-          </nav>
-          <a href="#join" className="mt-5 rounded-full h-12 flex items-center justify-center font-semibold" style={{ background: T.blush, color: T.cream }}>Join community</a>
-        </div>
-      )}
-    </header>
-  );
-}
-
 function Hero() {
   return (
     <section style={{ background: `linear-gradient(180deg, ${T.cream} 0%, ${T.linen} 100%)` }}>
@@ -157,7 +118,7 @@ function Hero() {
             <a href="#podcast" className="rounded-full px-7 h-14 inline-flex items-center gap-2 font-semibold transition-transform hover:scale-105" style={{ background: T.sageDeep, color: T.cream }}>
               <Play size={18} fill={T.cream} /> Listen to the podcast
             </a>
-            <a href="#resources" className="rounded-full px-7 h-14 inline-flex items-center font-semibold transition-colors" style={{ border: `1.5px solid ${T.charcoal}` }}>
+            <a href="/resources" className="rounded-full px-7 h-14 inline-flex items-center font-semibold transition-colors" style={{ border: `1.5px solid ${T.charcoal}` }}>
               Explore resources
             </a>
           </div>
@@ -231,27 +192,22 @@ function Resources() {
     ["A gentle home reset", "Choose one surface to clear, start one load of laundry, and decide what’s for dinner. Invite children to help with one task they can finish. Small, steady steps count."],
     ["A family prayer rhythm", "Choose a moment you already share: breakfast, the school run, or bedtime. Let each person name one thing they’re thankful for and one person to pray for."],
   ];
-  return <section id="resources" className="py-24 px-5 lg:px-8"><div className="max-w-7xl mx-auto"><p className="eyebrow">Small steps, steady grace</p><h2 className="serif text-5xl font-semibold">A little help for today.</h2><div className="grid md:grid-cols-3 gap-6 mt-10">{items.map(([title, body]) => <article className="card" key={title}><h3 className="serif text-3xl">{title}</h3><p className="mt-4 leading-relaxed" style={{color:T.ink}}>{body}</p></article>)}</div></div></section>;
+  return <section id="resources" className="py-24 px-5 lg:px-8"><div className="max-w-7xl mx-auto"><p className="eyebrow">Small steps, steady grace</p><div className="row between"><h2 className="serif text-5xl font-semibold">A little help for today.</h2><a className="btn" href="/resources">Browse all resources →</a></div><div className="grid md:grid-cols-3 gap-6 mt-10">{items.map(([title, body]) => <article className="card" key={title}><h3 className="serif text-3xl">{title}</h3><p className="mt-4 leading-relaxed" style={{color:T.ink}}>{body}</p></article>)}</div></div></section>;
 }
 
 function Newsletter() { return <NewsletterSection />; }
 
-function Footer() { return <footer className="px-5 py-12" style={{background:T.charcoal,color:T.cream}}><div className="max-w-7xl mx-auto flex flex-wrap gap-8 items-center justify-between"><div><Logo footer /><p className="text-sm mt-2">Peace for the home you’re building.</p></div><nav className="flex flex-wrap gap-6 text-sm" aria-label="Footer"><a href="#podcast">Podcast</a><a href="#resources">Resources</a><a href="mailto:hello@godlyhomes.com">Contact</a><a href="/studio">Studio sign in</a></nav><p className="text-xs w-full" style={{opacity:.65}}>© {new Date().getFullYear()} Godly Homes</p></div></footer>; }
-
 export default function GodlyHomesHomepage() {
   return (
-    <div className="gh min-h-screen">
+    <>
       <Styles />
-      <Announcement />
-      <Header />
-      <main>
+      <SiteLayout announcement={<Announcement />}>
         <Hero />
         <Pillars />
         <Podcast />
         <Resources />
         <Newsletter />
-      </main>
-      <Footer />
-    </div>
+      </SiteLayout>
+    </>
   );
 }

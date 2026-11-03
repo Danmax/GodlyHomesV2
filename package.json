@@ -14,7 +14,8 @@
     "db:migrate": "node --env-file-if-exists=.env server/migrate.js",
     "admin:create": "node --env-file-if-exists=.env server/create-admin.js",
     "test": "node --test test/*.test.js",
-    "test:integration": "node test/integration.js"
+    "test:integration": "node test/integration.js",
+    "test:pages": "node test/public-pages.js"
   },
   "dependencies": {
     "express": "5.1.0",
