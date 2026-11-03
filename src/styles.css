@@ -88,6 +88,7 @@ audio { width: 100%; margin-top: 14px; }
 .public-episode { max-width: 800px; margin: auto; padding: 60px 24px; }
 .notes { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.8; color: #5a534c; }
 .fatal { max-width: 600px; margin: 80px auto; padding: 30px; }
+.password-card { max-width: 620px; margin: 0 0 28px; }
 @keyframes breathe { 50% { box-shadow: 0 0 0 18px #f1dcd280; } }
 @media(max-width: 800px) { .workspace { grid-template-columns: 1fr; } .studio-header-inner { padding: 14px 18px; gap: 14px; } .studio-main { padding: 30px 18px 60px; } .user-email { display: none; } .brand { font-size: 24px; } .card { padding: 20px; } .episode-card { gap: 14px; } .tabs button { padding: 10px 12px; } .tabs { width: 100%; justify-content: center; } }
 @media(prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }

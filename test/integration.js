@@ -460,6 +460,12 @@ try {
   assert.equal((await rows('SELECT id FROM episodes WHERE id = ?', [active.id])).length, 0);
   await assert.rejects(readFile(path.join(process.env.MEDIA_DIR, `exports/${activeJob.id}-${activeJob.lease_token}.mp3`)), { code: 'ENOENT' });
   console.log('PASS: Owner-only episode deletion, CSRF, published-feed/media removal, render cleanup, shared-source retention, queued/running render cancellation.');
+  assert.equal((await mutate('post', '/api/auth/password').send({ currentPassword: 'wrong', newPassword: 'a-new-password-123', confirmPassword: 'a-new-password-123' })).status, 401);
+  assert.equal((await mutate('post', '/api/auth/password').send({ currentPassword: password, newPassword: 'short', confirmPassword: 'short' })).status, 400);
+  const replacementPassword = 'a-new-password-123';
+  assert.equal((await mutate('post', '/api/auth/password').send({ currentPassword: password, newPassword: replacementPassword, confirmPassword: replacementPassword })).status, 200);
+  assert.equal((await request(app).post('/api/auth/login').set('Origin', origin).send({ email: 'test@godlyhomes.com', password })).status, 401);
+  assert.equal((await request(app).post('/api/auth/login').set('Origin', origin).send({ email: 'test@godlyhomes.com', password: replacementPassword })).status, 200);
   assert.equal((await mutate('post', '/api/auth/logout')).status, 200);
   assert.equal((await agent.get('/api/episodes')).status, 401);
 } catch (error) {

@@ -8,7 +8,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { rows, transaction, json } from './db.js';
 import { config } from './config.js';
-import { authenticate, cookieOptions, digest, verifyPassword } from './auth.js';
+import { authenticate, cookieOptions, digest, hashPassword, verifyPassword } from './auth.js';
 import { episodeSchema, validateAssets } from './validation.js';
 import { probe, run } from './audio.js';
 import { feed } from './feed.js';
@@ -92,6 +92,18 @@ export async function createApp({ serveStatic = true, stripeClient, commerceSett
   app.use('/api/admin/commerce', commerce.adminRoutes);
   app.use('/api/admin', websiteAdmin);
   app.get('/api/auth/me', (req, res) => res.json({ user: req.user, csrf: req.csrf }));
+  app.post('/api/auth/password', rateLimit({ windowMs: 15 * 60000, limit: 10, standardHeaders: 'draft-8', legacyHeaders: false }), asyncRoute(async (req, res) => {
+    const input = z.object({ currentPassword: z.string().min(1).max(200), newPassword: z.string().min(12).max(200), confirmPassword: z.string().min(12).max(200) }).parse(req.body);
+    if (input.newPassword !== input.confirmPassword) throw failure('The new passwords do not match.');
+    const [user] = await rows('SELECT password_hash FROM users WHERE id = ?', [req.user.id]);
+    if (!user || !(await verifyPassword(input.currentPassword, user.password_hash))) throw failure('Your current password is incorrect.', 401);
+    await transaction(async connection => {
+      await rows('UPDATE users SET password_hash = ? WHERE id = ?', [await hashPassword(input.newPassword), req.user.id], connection);
+      // Keep this verified browser signed in and revoke every other session.
+      await rows('DELETE FROM sessions WHERE user_id = ? AND csrf_token <> ?', [req.user.id, req.csrf], connection);
+    });
+    res.json({ ok: true });
+  }));
   app.post('/api/auth/logout', asyncRoute(async (req, res) => {
     await rows('DELETE FROM sessions WHERE user_id = ? AND csrf_token = ?', [req.user.id, req.csrf]);
     res.clearCookie('gh_session', { ...cookieOptions(), maxAge: undefined }).json({ ok: true });
