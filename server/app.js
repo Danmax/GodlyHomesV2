@@ -13,14 +13,20 @@ import { episodeSchema, validateAssets } from './validation.js';
 import { probe, run } from './audio.js';
 import { feed } from './feed.js';
 import { receiveMedia, requireMediaFile, syncEpisodeMedia, mediaFile } from './media.js';
-import { publicWebsite, websiteAdmin, publicImage } from './website.js';
+import { publicWebsite, websiteAdmin, publicImage, imageRoutes } from './website.js';
+import { channelRoutes, publicChannels, channelSlug, channelSummary, seriesSummary, checkSeriesOwner } from './channels.js';
 import { workerMedia } from './worker-media.js';
 import { createCommerce } from './commerce.js';
 
 const asyncRoute = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const failure = (message, status = 400) => Object.assign(new Error(message), { status });
-const publicQuery = `SELECT p.*, j.bytes, j.duration FROM publications p JOIN render_jobs j ON j.id = p.job_id`;
-const mapEpisode = e => ({ id: e.id, title: e.title, description: e.description, number: e.episode_number, version: e.version, arrangement: json(e.arrangement), updatedAt: e.updated_at });
+const publicQuery = `SELECT p.*, j.bytes, j.duration, c.slug AS channel_slug, c.data AS channel_data, s.slug AS series_slug, s.data AS series_data
+  FROM publications p JOIN episodes e ON e.id = p.episode_id
+  LEFT JOIN podcast_channels c ON c.user_id = e.user_id
+  LEFT JOIN podcast_series s ON s.id = p.series_id AND s.user_id = e.user_id
+  JOIN render_jobs j ON j.id = p.job_id AND (c.user_id IS NULL OR c.is_public = TRUE)`;
+const mapEpisode = e => ({ id: e.id, title: e.title, description: e.description, number: e.episode_number, seriesId: e.series_id || null, version: e.version, arrangement: json(e.arrangement), updatedAt: e.updated_at });
+const mapPublicEpisode = e => ({ id: e.episode_id, title: e.title, description: e.description, number: e.episode_number, duration: e.duration, publishedAt: e.published_at, url: `/media/${e.episode_id}/${e.job_id}.mp3`, channel: channelSummary(e), series: seriesSummary(e) });
 const mapAsset = a => ({ id: a.id, name: a.filename, duration: a.duration, bytes: Number(a.bytes), url: `/api/assets/${a.id}/audio` });
 const mapJob = j => ({ id: j.id, revision: j.revision, state: j.state, error: j.error, createdAt: j.created_at, duration: j.duration, url: j.state === 'ready' ? `/api/jobs/${j.id}/audio` : null });
 async function audioPath(key, bytes) {
@@ -66,9 +72,34 @@ export async function createApp({ serveStatic = true, stripeClient, commerceSett
   }));
   app.get('/api/public/website', asyncRoute(async (_req, res) => res.json(await publicWebsite())));
   app.get('/images/:file', publicImage);
-  app.get('/api/public/episodes', asyncRoute(async (_req, res) => {
-    const episodes = await rows(`${publicQuery} ORDER BY p.published_at DESC`);
-    res.json(episodes.map(e => ({ id: e.episode_id, title: e.title, description: e.description, number: e.episode_number, duration: e.duration, publishedAt: e.published_at, url: `/media/${e.episode_id}/${e.job_id}.mp3` })));
+  app.use('/api/public/channels', publicChannels);
+  app.get('/api/public/episodes', asyncRoute(async (req, res) => {
+    const filters = [], values = [];
+    if (req.query.channel) { filters.push('c.slug = ?'); values.push(channelSlug.parse(req.query.channel)); }
+    if (req.query.series) { filters.push('s.slug = ?'); values.push(channelSlug.parse(req.query.series)); }
+    const episodes = await rows(`${publicQuery}${filters.length ? ` WHERE ${filters.join(' AND ')}` : ''} ORDER BY p.published_at DESC`, values);
+    res.json(episodes.map(mapPublicEpisode));
+  }));
+  app.get('/api/public/episodes/:id', asyncRoute(async (req, res) => {
+    const [episode] = await rows(`${publicQuery} WHERE p.episode_id = ?`, [z.uuid().parse(req.params.id)]);
+    if (!episode) throw failure('This episode is not available.', 404);
+    res.json(mapPublicEpisode(episode));
+  }));
+  app.get(['/channels/:slug/feed.xml', '/channels/:slug/series/:seriesSlug/feed.xml'], asyncRoute(async (req, res) => {
+    const [channel] = await rows('SELECT * FROM podcast_channels WHERE slug = ? AND is_public = TRUE', [channelSlug.parse(req.params.slug)]);
+    if (!channel) throw failure('Channel not found.', 404);
+    let branding = json(channel.data), filter = '', values = [channel.slug];
+    if (req.params.seriesSlug) {
+      const [series] = await rows('SELECT * FROM podcast_series WHERE user_id = ? AND slug = ?', [channel.user_id, channelSlug.parse(req.params.seriesSlug)]);
+      if (!series) throw failure('Series not found.', 404);
+      const data = json(series.data);
+      filter = ' AND p.series_id = ?'; values.push(series.id);
+      branding = { ...branding, title: data.title, description: data.description, coverUrl: data.coverUrl || branding.coverUrl };
+    }
+    const episodes = await rows(`${publicQuery} WHERE c.slug = ?${filter} ORDER BY p.published_at DESC`, values);
+    if (req.params.seriesSlug && !episodes.length) throw failure('Series not found.', 404);
+    const homePath = `/channels/${channel.slug}${req.params.seriesSlug ? `/series/${req.params.seriesSlug}` : ''}`;
+    res.type('application/rss+xml').send(feed(episodes, config.origin, { ...branding, homePath, feedPath: `${homePath}/feed.xml` }));
   }));
   app.get('/podcast/feed.xml', asyncRoute(async (_req, res) => {
     const [branding] = await rows("SELECT data FROM website_documents WHERE document_key = 'podcast'");
@@ -90,6 +121,7 @@ export async function createApp({ serveStatic = true, stripeClient, commerceSett
   app.use('/api/worker', workerMedia);
   app.use('/api/store', commerce.publicRoutes);
   app.use('/api', asyncRoute(authenticate));
+  app.use('/api/channel', imageRoutes, channelRoutes);
   app.use('/api/admin/commerce', commerce.adminRoutes);
   app.use('/api/admin', websiteAdmin);
   app.get('/api/auth/me', (req, res) => res.json({ user: req.user, csrf: req.csrf }));
@@ -143,8 +175,9 @@ export async function createApp({ serveStatic = true, stripeClient, commerceSett
   app.put('/api/episodes/:id', asyncRoute(async (req, res) => {
     const input = episodeSchema.parse(req.body);
     await validateAssets(input.arrangement, req.user.id, rows);
-    const result = await rows(`UPDATE episodes SET title = ?, description = ?, episode_number = ?, arrangement = ?, version = version + 1
-      WHERE id = ? AND user_id = ? AND version = ?`, [input.title, input.description, input.number, JSON.stringify(input.arrangement), req.params.id, req.user.id, input.version]);
+    await checkSeriesOwner(input.seriesId, req.user.id);
+    const result = await rows(`UPDATE episodes SET title = ?, description = ?, episode_number = ?, arrangement = ?, series_id = ?, version = version + 1
+      WHERE id = ? AND user_id = ? AND version = ?`, [input.title, input.description, input.number, JSON.stringify(input.arrangement), input.seriesId, req.params.id, req.user.id, input.version]);
     if (!result.affectedRows) throw failure('This draft changed in another tab. Reload before editing again.', 409);
     const [episode] = await rows('SELECT * FROM episodes WHERE id = ?', [req.params.id]);
     res.json(mapEpisode(episode));
@@ -248,8 +281,11 @@ export async function createApp({ serveStatic = true, stripeClient, commerceSett
       if (job.revision !== episode.version) throw failure('This draft has changed. Render and review its current version first.', 409);
       await requireMediaFile(job.output_key, job.bytes);
       const snapshot = json(job.snapshot);
-      await query(`INSERT INTO publications (episode_id, job_id, title, description, episode_number) VALUES (?, ?, ?, ?, ?)
-        ON DUPLICATE KEY UPDATE job_id = VALUES(job_id), title = VALUES(title), description = VALUES(description), episode_number = VALUES(episode_number)`, [episode.id, job.id, snapshot.title, snapshot.description, snapshot.number]);
+      const [channel] = await query('SELECT is_public FROM podcast_channels WHERE user_id = ?', [req.user.id]);
+      if (channel && !channel.is_public) throw failure('Make your channel public in My channel before publishing.');
+      await checkSeriesOwner(snapshot.seriesId, req.user.id, query);
+      await query(`INSERT INTO publications (episode_id, job_id, title, description, episode_number, series_id) VALUES (?, ?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE job_id = VALUES(job_id), title = VALUES(title), description = VALUES(description), episode_number = VALUES(episode_number), series_id = VALUES(series_id)`, [episode.id, job.id, snapshot.title, snapshot.description, snapshot.number, snapshot.seriesId || null]);
     });
     res.json({ ok: true });
   }));
@@ -260,7 +296,7 @@ export async function createApp({ serveStatic = true, stripeClient, commerceSett
   app.use('/api', (_req, res) => res.status(404).json({ error: 'Endpoint not found.' }));
   if (serveStatic) {
     app.use(express.static(path.resolve('dist')));
-    app.get(['/', '/about', '/resources', '/resources/:slug', '/store', '/store/:slug', '/checkout', '/admin', '/studio', '/podcast/:id'], (_req, res) => res.sendFile(path.resolve('dist/index.html')));
+    app.get(['/', '/about', '/resources', '/resources/:slug', '/store', '/store/:slug', '/checkout', '/admin', '/studio', '/podcast/:id', '/channels', '/channels/:slug', '/channels/:slug/series/:seriesSlug', '/authors/:slug'], (_req, res) => res.sendFile(path.resolve('dist/index.html')));
   }
   app.use((error, _req, res, next) => {
     if (res.headersSent) return next(error);

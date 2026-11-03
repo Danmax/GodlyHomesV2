@@ -16,6 +16,7 @@ export const episodeSchema = z.object({
   title: z.string().trim().min(1).max(200),
   description: z.string().max(20000),
   number: z.number().int().min(1).max(100000),
+  seriesId: z.uuid().nullable().optional().default(null),
   arrangement: arrangementSchema,
 });
 export async function validateAssets(arrangement, userId, query) {

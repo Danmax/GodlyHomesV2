@@ -64,7 +64,8 @@ websiteAdmin.delete('/entries/:kind/:id', route(async (req, res) => {
 }));
 
 const imageUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 1, fields: 0 } }).single('image');
-websiteAdmin.post('/images', (req, res, next) => imageUpload(req, res, error => error ? next(fail('Choose one PNG, JPEG, or WebP image smaller than 5 MB.')) : next()), route(async (req, res) => {
+export const imageRoutes = express.Router();
+imageRoutes.post('/images', (req, res, next) => imageUpload(req, res, error => error ? next(fail('Choose one PNG, JPEG, or WebP image smaller than 5 MB.')) : next()), route(async (req, res) => {
   const file = req.file;
   if (!file) throw fail('Choose an image to upload.');
   const data = file.buffer;
@@ -74,7 +75,7 @@ websiteAdmin.post('/images', (req, res, next) => imageUpload(req, res, error => 
   if (!extension) throw fail('Choose a PNG, JPEG, or WebP image. SVG and other formats are not supported.');
   if (config.remoteMediaOrigin && config.remoteMediaOrigin !== config.origin && req.hostname !== new URL(config.remoteMediaOrigin).hostname) {
     const form = new FormData(); form.append('image', new Blob([data]), `image.${extension}`);
-    const response = await fetch(new URL('/api/admin/images', config.remoteMediaOrigin), { method: 'POST', headers: { Cookie: req.headers.cookie, Origin: config.remoteMediaOrigin, 'X-CSRF-Token': req.csrf }, body: form, redirect: 'error', signal: AbortSignal.timeout(60000) });
+    const response = await fetch(new URL('/api/channel/images', config.remoteMediaOrigin), { method: 'POST', headers: { Cookie: req.headers.cookie, Origin: config.remoteMediaOrigin, 'X-CSRF-Token': req.csrf }, body: form, redirect: 'error', signal: AbortSignal.timeout(60000) });
     if (!response.ok) throw fail('The image could not be saved to the hosted website. Please try again.', 503);
     const image = await response.json(); return res.status(201).json({ url: new URL(image.url, config.remoteMediaOrigin).href });
   }
@@ -83,6 +84,7 @@ websiteAdmin.post('/images', (req, res, next) => imageUpload(req, res, error => 
   await writeFile(path.join(directory, filename), data, { flag: 'wx', mode: 0o644 });
   res.status(201).json({ url: `/images/${filename}` });
 }));
+websiteAdmin.use(imageRoutes);
 
 export function publicImage(req, res, next) {
   if (!/^[a-f0-9-]{36}\.(png|jpg|webp)$/.test(req.params.file)) return res.sendStatus(404);
