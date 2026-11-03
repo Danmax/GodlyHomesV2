@@ -80,5 +80,5 @@ export function ProductPage({ slug }) {
 }
 
 export function NotFoundPage() {
-  return <SiteLayout><PageIntro eyebrow="A little detour" title="This page isn’t here.">Let’s help you find your way to something useful.</PageIntro><div className="site-container not-found-actions"><a className="btn primary" href="/">Back home</a><a className="btn" href="/resources">Explore resources</a></div></SiteLayout>;
+  return <SiteLayout><PageIntro eyebrow="A little detour" title="This page isn’t here.">Let’s help you find your way to something useful.</PageIntro><div className="site-container not-found-actions"><a className="btn primary" href="/">Back home</a><a className="btn" href="/resources">Explore reflexions</a></div></SiteLayout>;
 }
