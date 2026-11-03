@@ -4,6 +4,7 @@ import SiteLayout, { usePageMeta } from './SiteLayout.jsx';
 import { NewsletterSection } from './PublicPodcast.jsx';
 import { downloadWorksheet } from './resources.js';
 import { ContentStatus, useSiteContent } from './SiteContent.jsx';
+import { api } from './api.js';
 
 const categoryIcons = { Faith: BookOpen, Home, Family: Users };
 function PageIntro({ eyebrow, title, children }) {
@@ -58,6 +59,13 @@ export function ResourcePage({ slug }) {
 const price = item => item.priceCents === null ? 'Contact for pricing' : new Intl.NumberFormat('en-US', { style: 'currency', currency: item.currency }).format(item.priceCents / 100);
 function PurchaseLink({ product }) {
   const { documents: { site } } = useSiteContent();
+  const [busy, setBusy] = useState(false), [error, setError] = useState('');
+  const checkout = async () => {
+    setBusy(true); setError('');
+    try { const result = await api('/api/store/checkout', { method: 'POST', body: { productId: product.id } }); location.assign(result.url); }
+    catch (error) { setError(error.message); setBusy(false); }
+  };
+  if (product.stripePriceId) return <><button className="btn primary" disabled={busy} onClick={checkout}>{busy ? 'Opening checkout…' : 'Buy now'} <ArrowUpRight size={15} /></button>{error && <p className="message error" role="alert">{error}</p>}</>;
   return product.checkoutUrl ? <a className="btn primary" href={product.checkoutUrl} target="_blank" rel="noopener noreferrer">Buy {product.kind === 'digital' ? 'digital resource' : 'item'} <ArrowUpRight size={15} /></a> : <a className="btn" href={`mailto:${site.email}?subject=${encodeURIComponent(`Question about ${product.title}`)}`}>Ask about this item <Mail size={15} /></a>;
 }
 function ProductCard({ product }) {
@@ -79,7 +87,7 @@ export function ProductPage({ slug }) {
   usePageMeta(product?.title || 'Store', product?.description || 'Explore the Godly Homes store.');
   if (loading || error) return <PendingContent />;
   if (!product) return <NotFoundPage />;
-  return <SiteLayout><section className="site-container product-detail"><a className="btn ghost" href="/store"><ArrowLeft size={15} />Back to store</a><div className="store-section"><div className="product-art product-detail-art">{product.imageUrl ? <img src={product.imageUrl} alt={product.imageAlt || product.title} /> : <ShoppingBag size={72} strokeWidth={1} />}</div><div><p className="eyebrow">{product.kind === 'digital' ? 'Digital resource' : 'Physical product'}</p><h1>{product.title}</h1><p className="product-price">{price(product)}</p><p className="notes">{product.description}</p><PurchaseLink product={product} />{product.checkoutUrl && <p className="small muted" style={{ marginTop: 16 }}>Checkout opens with the seller’s payment provider.</p>}</div></div></section></SiteLayout>;
+  return <SiteLayout><section className="site-container product-detail"><a className="btn ghost" href="/store"><ArrowLeft size={15} />Back to store</a><div className="store-section"><div className="product-art product-detail-art">{product.imageUrl ? <img src={product.imageUrl} alt={product.imageAlt || product.title} /> : <ShoppingBag size={72} strokeWidth={1} />}</div><div><p className="eyebrow">{product.kind === 'digital' ? 'Digital resource' : 'Physical product'}</p><h1>{product.title}</h1><p className="product-price">{price(product)}</p><p className="notes">{product.description}</p><PurchaseLink product={product} />{product.stripePriceId && <><p className="small muted">{product.stripeLivemode ? 'Secure checkout with Stripe.' : 'Test checkout — no live payment.'} {product.kind === 'physical' ? 'Shipping and any applicable tax are shown at checkout.' : 'Our team will send your resource to the email provided at checkout.'}</p>{new URLSearchParams(location.search).get('checkout') === 'cancelled' && <p className="message" role="status">You returned from checkout. You can try again when you’re ready.</p>}</>}{product.checkoutUrl && <p className="small muted" style={{ marginTop: 16 }}>Checkout opens with the seller’s payment provider.</p>}</div></div></section></SiteLayout>;
 }
 
 export function NotFoundPage() {

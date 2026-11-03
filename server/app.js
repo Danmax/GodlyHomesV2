@@ -15,6 +15,7 @@ import { feed } from './feed.js';
 import { receiveMedia, requireMediaFile, syncEpisodeMedia, mediaFile } from './media.js';
 import { publicWebsite, websiteAdmin, publicImage } from './website.js';
 import { workerMedia } from './worker-media.js';
+import { createCommerce } from './commerce.js';
 
 const asyncRoute = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const failure = (message, status = 400) => Object.assign(new Error(message), { status });
@@ -27,7 +28,7 @@ async function audioPath(key, bytes) {
   catch (error) { if (error.status === 409) throw failure('The audio file is not stored on this server.', 404); throw error; }
 }
 
-export async function createApp({ serveStatic = true } = {}) {
+export async function createApp({ serveStatic = true, stripeClient, commerceSettings } = {}) {
   await mkdir(path.join(config.mediaDir, 'uploads'), { recursive: true });
   await mkdir(path.join(config.mediaDir, 'exports'), { recursive: true });
   const app = express();
@@ -37,6 +38,10 @@ export async function createApp({ serveStatic = true } = {}) {
     fontSrc: ["'self'", 'https://fonts.gstatic.com'], imgSrc: ["'self'", 'data:', 'https:'],
     mediaSrc: ["'self'", 'blob:'], connectSrc: ["'self'"], upgradeInsecureRequests: config.production ? [] : null,
   } } }));
+  const commerce = createCommerce({ stripeClient, settings: commerceSettings });
+  // Signature verification requires the untouched body. Stripe cannot send a
+  // browser Origin or studio CSRF token; only this signed endpoint bypasses them.
+  app.post('/api/stripe/webhook', express.raw({ type: 'application/json', limit: '1mb' }), commerce.webhook);
   app.use(express.json({ limit: '256kb' }));
   app.use('/api', (req, res, next) => {
     res.set('Cache-Control', 'no-store');
@@ -82,7 +87,9 @@ export async function createApp({ serveStatic = true } = {}) {
   }));
 
   app.use('/api/worker', workerMedia);
+  app.use('/api/store', commerce.publicRoutes);
   app.use('/api', asyncRoute(authenticate));
+  app.use('/api/admin/commerce', commerce.adminRoutes);
   app.use('/api/admin', websiteAdmin);
   app.get('/api/auth/me', (req, res) => res.json({ user: req.user, csrf: req.csrf }));
   app.post('/api/auth/logout', asyncRoute(async (req, res) => {

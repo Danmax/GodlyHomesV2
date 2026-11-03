@@ -23,6 +23,11 @@ export const resourceSchema = z.object({
 export const productSchema = z.object({
   title: short, description: copy, kind: z.enum(['digital', 'physical']), priceCents: z.number().int().min(0).max(99999999).nullable(),
   currency: z.enum(['USD', 'CAD', 'EUR', 'GBP', 'AUD']), imageUrl, imageAlt: z.string().max(250), checkoutUrl: z.union([z.literal(''), safeHref.refine(value => value.startsWith('https://'), 'Checkout must use HTTPS.')]),
-});
+  stripePriceId: z.union([z.literal(''), z.string().regex(/^price_[A-Za-z0-9]+$/).max(255)]).optional().default(''),
+  stripeProductId: z.string().max(255).optional().default(''),
+  stripeLivemode: z.boolean().nullable().optional().default(null),
+  shippingCountries: z.array(z.string().regex(/^[A-Z]{2}$/)).max(100).optional().default([]),
+  shippingRates: z.array(z.string().regex(/^shr_[A-Za-z0-9]+$/).max(255)).max(5).optional().default([]),
+}).refine(data => !data.stripePriceId || !data.checkoutUrl, 'Choose Stripe Checkout or an external checkout link, not both.');
 export const entrySchema = kind => z.object({ slug: z.string().min(1).max(160).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'Use lowercase letters, numbers, and hyphens for the address.'), status: z.enum(['draft', 'published']), sortOrder: z.number().int().min(-10000).max(10000), data: kind === 'resource' ? resourceSchema : productSchema });
 export const versionSchema = z.number().int().positive();

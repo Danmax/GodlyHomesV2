@@ -5,6 +5,7 @@ import Studio from './Studio.jsx';
 import { PublicEpisode } from './PublicPodcast.jsx';
 import { AboutPage, ResourcesPage, ResourcePage, StorePage, ProductPage, NotFoundPage } from './ContentPages.jsx';
 import { SiteContentProvider } from './SiteContent.jsx';
+import CheckoutPage from './CheckoutPage.jsx';
 import './styles.css';
 
 class ErrorBoundary extends React.Component {
@@ -16,6 +17,7 @@ const path = location.pathname.replace(/\/+$/, '') || '/';
 const resourceMatch = path.match(/^\/resources\/([^/]+)$/);
 const productMatch = path.match(/^\/store\/([^/]+)$/);
 const page = path === '/' ? <Homepage />
+  : path === '/checkout' ? <CheckoutPage />
   : path === '/about' ? <AboutPage />
     : path === '/resources' ? <ResourcesPage />
       : resourceMatch ? <ResourcePage slug={resourceMatch[1]} />

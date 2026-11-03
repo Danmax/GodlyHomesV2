@@ -238,6 +238,9 @@ try {
   assert.equal((await request(app).post('/api/subscribe').set('Origin', origin).send({ email: 'reader@example.com', consent: true })).status, 200);
   console.log('PASS: MySQL authentication, CSRF, ownership, uploads, drafts, FFmpeg render, checksum-verified source/MP3 recovery, missing-file publication prevention, publish, RSS, byte-range audio, unpublish and subscriptions.');
 
+  const { testCommerce } = await import('./commerce-integration.js');
+  await testCommerce({ createApp, rows, origin, password });
+
   if (process.env.RUN_BROWSER === '1') {
     const { chromium } = await import('playwright');
     const { config } = await import('../server/config.js');

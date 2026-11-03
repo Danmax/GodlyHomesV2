@@ -29,6 +29,7 @@
     "mysql2": "3.24.6",
     "react": "19.2.0",
     "react-dom": "19.2.0",
+    "stripe": "^23.1.0",
     "zod": "4.6.7"
   },
   "devDependencies": {

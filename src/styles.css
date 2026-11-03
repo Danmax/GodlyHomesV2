@@ -302,3 +302,8 @@ audio { width: 100%; margin-top: 14px; }
 @media(max-width: 1000px) { .studio-header-inner { flex-wrap: wrap; } .account-nav { order: 3; flex-basis: 100%; justify-content: center; } }
 @media(max-width: 800px) { .admin-layout { grid-template-columns: 1fr; gap: 22px; } .admin-nav { display: flex; gap: 6px; flex-wrap: wrap; position: static; } .admin-nav button { padding: 10px 12px; font-size: 12px; } .admin-field-grid { grid-template-columns: 1fr; } }
 @media(max-width: 600px) { .admin-form { padding: 20px; } .admin-repeat-item { padding-left: 14px; } .admin-entry-card { flex-wrap: wrap; gap: 12px; } .product-detail-art { min-height: 280px; } .product-detail-art img { height: 240px; } }
+/* Store administration and order confirmation */
+.commerce-code { display: block; overflow-wrap: anywhere; white-space: normal; }
+.commerce-order summary { cursor: pointer; overflow-wrap: anywhere; }
+.commerce-order[open] summary { margin-bottom: 1.25rem; }
+.commerce-order label { display: block; }
