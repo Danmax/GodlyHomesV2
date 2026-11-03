@@ -2,7 +2,7 @@ export const xml = value => String(value ?? '').replace(/[\u0000-\u0008\u000b\u0
 export function feed(episodes, origin, branding = {}) {
   const title = xml(branding.title || process.env.SHOW_TITLE || 'Godly Homes');
   const description = xml(branding.description || process.env.SHOW_DESCRIPTION || 'Encouragement for the home you are building.');
-  const image = branding.coverUrl ? new URL(branding.coverUrl, origin).href : process.env.SHOW_IMAGE_URL;
+  const image = branding.coverUrl ? new URL(branding.coverUrl, origin).href : branding.homePath ? null : process.env.SHOW_IMAGE_URL;
   const author = xml(branding.authorName || branding.title || process.env.SHOW_TITLE || 'Godly Homes');
   return `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd" xmlns:atom="http://www.w3.org/2005/Atom"><channel>

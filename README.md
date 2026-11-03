@@ -46,6 +46,16 @@ In **Studio → Arrange & edit**, select a clip to trim its boundaries, split at
 
 **Website Admin → Podcast branding** controls the show title, description, cover artwork, and author spotlight (name, biography, portrait, and profile link). Show branding appears on the homepage podcast section and episode pages, and title/description/artwork/author are included in RSS. Apply migration `006_podcast_branding.sql` before opening this settings page on an existing installation. The spotlight is hidden until enabled with an author name and biography.
 
+### Author profiles, channels, and series
+
+Every signed-in publisher or administrator can open **My channel** to set up their author name, biography, portrait, profile link, show title, description, cover artwork, and brand color. Each account owns one channel and its series. Account email addresses remain private. Author permissions do not grant Website Admin access, and author image uploads use the authenticated `/api/channel/images` endpoint.
+
+Make the channel public to publish episodes under that branding. A private channel hides its profile, episodes, media URLs, and RSS feeds from public requests. Existing episodes from accounts without a channel retain their existing publication behavior. Changing a channel or series address changes its public links.
+
+Create series in **My channel**, then assign an episode in **Review & publish → Podcast series**. Series placement is saved in the published episode snapshot, so a draft reassignment becomes public only after rendering and publishing again. Series pages appear after their first published episode; a standalone episode needs no series. Each author can only assign and edit their own series.
+
+Public pages: `/channels` (directory), `/authors/:slug` (author profile), `/channels/:slug` (show), and `/channels/:slug/series/:seriesSlug` (series). Channel RSS uses `/channels/:slug/feed.xml`; series RSS uses `/channels/:slug/series/:seriesSlug/feed.xml`. The original `/podcast/feed.xml` remains the site-wide feed. Migration `007_author_channels.sql` adds the author and series tables and episode/publication series fields; apply it before deploying this version.
+
 The Homepage announcement is displayed across every public page. Use it for a current promotion or update; its text, link label, destination, and visibility are managed in **Website Admin → Homepage**. In **Website Admin → Discount codes**, create percentage or fixed-amount Stripe promotion codes. Stripe Checkout collects the code securely; the server never receives or stores a shopper-entered code. Restricted Stripe keys need read/write access to Coupons and Promotion Codes in addition to the existing Products, Prices, Checkout Sessions, and Shipping Rates permissions.
 
 ## Stripe store and orders

@@ -6,6 +6,7 @@ import { PublicEpisode } from './PublicPodcast.jsx';
 import { AboutPage, ResourcesPage, ResourcePage, StorePage, ProductPage, NotFoundPage } from './ContentPages.jsx';
 import { SiteContentProvider } from './SiteContent.jsx';
 import CheckoutPage from './CheckoutPage.jsx';
+import { ChannelDirectory, PublicChannel } from './ChannelPages.jsx';
 import './styles.css';
 
 class ErrorBoundary extends React.Component {
@@ -16,7 +17,12 @@ class ErrorBoundary extends React.Component {
 const path = location.pathname.replace(/\/+$/, '') || '/';
 const resourceMatch = path.match(/^\/resources\/([^/]+)$/);
 const productMatch = path.match(/^\/store\/([^/]+)$/);
+const channelMatch = path.match(/^\/channels\/([^/]+)(?:\/series\/([^/]+))?$/);
+const authorMatch = path.match(/^\/authors\/([^/]+)$/);
 const page = path === '/' ? <Homepage />
+  : path === '/channels' ? <ChannelDirectory />
+  : channelMatch ? <PublicChannel slug={channelMatch[1]} seriesSlug={channelMatch[2]} />
+  : authorMatch ? <PublicChannel slug={authorMatch[1]} authorOnly />
   : path === '/checkout' ? <CheckoutPage />
   : path === '/about' ? <AboutPage />
     : path === '/resources' ? <ResourcesPage />

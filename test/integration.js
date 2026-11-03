@@ -241,6 +241,8 @@ try {
 
   const { testCommerce } = await import('./commerce-integration.js');
   await testCommerce({ createApp, rows, origin, password });
+  const { testChannels } = await import('./channels-integration.js');
+  await testChannels({ createApp, rows, origin, fixture, claimJob, processJob });
 
   if (process.env.RUN_BROWSER === '1') {
     const { chromium } = await import('playwright');

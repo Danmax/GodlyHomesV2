@@ -22,12 +22,13 @@ function ImageField({ label, value, onChange, onBusy }) {
 export default function ChannelManager({ onDirty }) {
   const [channel, setChannel] = useState(null), [series, setSeries] = useState([]), [selected, setSelected] = useState(null);
   const [loading, setLoading] = useState(true), [busy, setBusy] = useState(false), [uploading, setUploading] = useState(false), [error, setError] = useState(''), [message, setMessage] = useState('');
+  const [channelDirty, setChannelDirty] = useState(false);
   useEffect(() => { api('/api/channel').then(result => { setChannel(result.channel || { slug: '', data: { ...emptyData }, isPublic: false, version: 0 }); setSeries(result.series); }).catch(error => setError(error.message)).finally(() => setLoading(false)); }, []);
-  const change = (key, value) => { setChannel(old => ({ ...old, [key]: value })); onDirty(true); setMessage(''); };
-  const data = (key, value) => { setChannel(old => ({ ...old, data: { ...old.data, [key]: value } })); onDirty(true); setMessage(''); };
+  const change = (key, value) => { setChannel(old => ({ ...old, [key]: value })); setChannelDirty(true); onDirty(true); setMessage(''); };
+  const data = (key, value) => { setChannel(old => ({ ...old, data: { ...old.data, [key]: value } })); setChannelDirty(true); onDirty(true); setMessage(''); };
   const saveChannel = async event => {
     event.preventDefault(); setBusy(true); setError(''); setMessage('');
-    try { const result = await api('/api/channel', { method: 'PUT', body: channel }); setChannel(result); onDirty(false); setMessage('Your profile and channel settings are saved.'); }
+    try { const result = await api('/api/channel', { method: 'PUT', body: channel }); setChannel(result); setChannelDirty(false); onDirty(false); setMessage('Your profile and channel settings are saved.'); }
     catch (error) { setError(error.message); } finally { setBusy(false); }
   };
   const editSeries = (key, value) => { setSelected(old => ({ ...old, [key]: value })); onDirty(true); setMessage(''); };
@@ -54,7 +55,7 @@ export default function ChannelManager({ onDirty }) {
       <label className="row"><input type="checkbox" checked={channel.isPublic} onChange={event => change('isPublic', event.target.checked)} />Make my profile and channel public</label>
       <p className="small muted">A private channel hides its published episodes and RSS feed. Make it public before publishing an episode. Recordings and drafts stay private.</p>
       <button className="btn primary" disabled={busy || uploading}>Save profile & channel</button>
-    </fieldset></form><section className="stack"><div className="card fields"><div className="row between"><h2>Podcast series</h2><button className="btn" disabled={busy || !channel.version || Boolean(selected)} onClick={() => { setSelected(blankSeries()); setMessage(''); }}>New series</button></div><p className="small muted">Group episodes into series within your channel. A series appears publicly after its first episode is published.</p>{!channel.version && <p className="message">Save your channel to create a series.</p>}{series.map(item => <button className="btn channel-series-button" key={item.id} disabled={busy || Boolean(selected)} onClick={() => setSelected(item)}>{item.data.title}</button>)}</div>
+    </fieldset></form><section className="stack"><div className="card fields"><div className="row between"><h2>Podcast series</h2><button className="btn" disabled={busy || channelDirty || !channel.version || Boolean(selected)} onClick={() => { setSelected(blankSeries()); setMessage(''); }}>New series</button></div><p className="small muted">Group episodes into series within your channel. A series appears publicly after its first episode is published.</p>{!channel.version && <p className="message">Save your channel to create a series.</p>}{series.map(item => <button className="btn channel-series-button" key={item.id} disabled={busy || channelDirty || Boolean(selected)} onClick={() => setSelected(item)}>{item.data.title}</button>)}</div>
       {selected && <form className="card fields" onSubmit={saveSeries}><h2>{selected.id ? 'Edit series' : 'Create series'}</h2><fieldset className="fields" disabled={busy || uploading}>
         <Field label="Series title" value={selected.data.title} onChange={value => seriesField('title', value)} maxLength="200" />
         <Field label="Series address" value={selected.slug} onChange={value => editSeries('slug', value)} pattern="[a-z0-9]+(-[a-z0-9]+)*" minLength="3" maxLength="100" />

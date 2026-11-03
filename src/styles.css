@@ -33,6 +33,7 @@ h1,h2,h3,p { margin-top: 0; }
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; border: 1px solid #dfd5c7; padding: 11px 19px; border-radius: 99px; text-decoration: none; background: #fbf7f1; color: #55644c; font-weight: 600; font-size: 13px; transition: background .2s, transform .2s; }
 .btn:hover:enabled { background: #e6e9dd; transform: translateY(-1px); }
 .btn.primary { background: #55644c; border-color: #55644c; color: #fff; }
+.btn.primary:hover:enabled { background: #45543b; color: #fff; }
 .btn.accent { background: #b9705a; border-color: #b9705a; color: #fff; }
 .btn.danger { color: #9c4434; }
 .btn.icon { padding: 9px; }
@@ -100,6 +101,17 @@ audio { width: 100%; margin-top: 14px; }
 .author-spotlight { margin-top: 20px; }
 .podcast-branding h3 { margin: 0 0 10px; }
 .podcast-branding p { overflow-wrap: anywhere; }
+.channel-manager fieldset { min-width: 0; border: 0; padding: 0; margin: 0; }
+.channel-manager input[type=color] { width: 96px; height: 48px; padding: 5px; }
+.channel-series-button { justify-content: start; overflow-wrap: anywhere; white-space: normal; }
+.channel-hero { display: flex; align-items: center; gap: 32px; margin-top: 28px; padding: 28px 0; border-top: 5px solid var(--channel-accent); }
+.channel-cover { width: min(240px, 100%); aspect-ratio: 1; object-fit: cover; border-radius: 20px; }
+.channel-hero > div { min-width: 0; }
+.channel-directory-art { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 14px; }
+.channel-public .author-spotlight { border-left: 5px solid var(--channel-accent); }
+.channel-public h1, .channel-public h2, .channel-public p { overflow-wrap: anywhere; }
+.channel-public .row { flex-wrap: wrap; }
+@media(max-width: 700px) { .channel-hero { flex-direction: column; align-items: start; } }
 @media(max-width: 480px) { .podcast-show-brand, .podcast-author { flex-direction: column; } }
 @keyframes breathe { 50% { box-shadow: 0 0 0 18px #f1dcd280; } }
 @media(max-width: 800px) { .workspace { grid-template-columns: 1fr; } .studio-header-inner { padding: 14px 18px; gap: 14px; } .studio-main { padding: 30px 18px 60px; } .user-email { display: none; } .brand { font-size: 24px; } .card { padding: 20px; } .episode-card { gap: 14px; } .tabs button { padding: 10px 12px; } .tabs { width: 100%; justify-content: center; } }
