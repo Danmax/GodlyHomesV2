@@ -44,7 +44,7 @@ test('intro transport returns completed PCM or text, closes sessions, and saniti
     constructor(url, options) { super(); this.url = url; this.options = options; this.sent = []; sockets.push(this); queueMicrotask(() => this.emit('message', Buffer.from('{"type":"session.created"}'))); }
     send(raw) {
       const event = JSON.parse(raw); this.sent.push(event);
-      if (event.type === 'session.update') queueMicrotask(() => this.emit('message', Buffer.from('{"type":"session.updated"}')));
+      if (event.type === 'session.update') queueMicrotask(() => { this.emit('message', Buffer.from('{"type":"session.updated"}')); this.emit('message', Buffer.from('{"type":"session.updated"}')); });
       if (event.type === 'response.create') queueMicrotask(() => {
         const audio = event.response.output_modalities[0] === 'audio';
         this.emit('message', Buffer.from(JSON.stringify(audio ? { type: 'response.output_audio.delta', delta: Buffer.from([1, 2, 3, 4]).toString('base64') } : { type: 'response.output_text.delta', delta: 'Welcome to our show.' })));
@@ -59,6 +59,7 @@ test('intro transport returns completed PCM or text, closes sessions, and saniti
   assert.deepEqual(await generateIntro({ instructions: 'Read it.', text: 'Hello.', voice: 'cedar', audio: true, userId: 'hashed-user' }, options), Buffer.from([1, 2, 3, 4]));
   assert.ok(sockets.every(s => s.closed && s.url.includes('gpt-realtime-2.1-mini')));
   assert.equal(sockets[1].sent[0].session.audio.output.voice, 'cedar');
+  assert.ok(sockets.every(s => s.sent.filter(e => e.type === 'response.create').length === 1), 'Session updates never duplicate a paid generation');
   await assert.rejects(generateIntro({ text: 'Hi' }, { apiKey: '' }), /configuration/);
   class Rejected extends Socket { send() { queueMicrotask(() => this.emit('message', Buffer.from('{"type":"error","error":{"message":"secret-provider-detail"}}'))); } }
   await assert.rejects(generateIntro({ text: 'Hi' }, { ...options, Socket: Rejected }), error => error.status === 503 && !error.message.includes('secret-provider-detail'));

@@ -27,6 +27,7 @@ export async function testMobilePages(browser, origin) {
     else if (path.startsWith('/api/store/orders/')) json = order;
     else if (path === '/api/episodes') json = [episode];
     else if (path === '/api/assets') json = [{ id: 'asset', name: word, duration: 60, url: '/fixture-audio' }];
+    else if (path === '/api/studio-tools/options') json = { introEnabled: false, voices: ['marin', 'cedar', 'coral', 'sage'] };
     else if (path.endsWith('/jobs')) json = [];
     else if (path === '/api/channel') json = { channel: { slug: 'family', version: 1, isPublic: true, data: channel }, series: channel.series.map(item => ({ ...item, data: item })) };
     else if (path === '/api/admin/documents') json = Object.entries(defaultDocuments).map(([key, data]) => ({ key, data, version: 1 }));

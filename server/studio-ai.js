@@ -14,7 +14,7 @@ export function generateIntro({ instructions, text, voice = 'marin', audio = fal
       handshakeTimeout: 15000, maxPayload: 1024 * 1024,
     });
     const chunks = [];
-    let bytes = 0, output = '', settled = false;
+    let bytes = 0, output = '', settled = false, requested = false;
     const finish = (error, value) => {
       if (settled) return;
       settled = true; clearTimeout(timer); socket.close();
@@ -29,7 +29,8 @@ export function generateIntro({ instructions, text, voice = 'marin', audio = fal
           type: 'realtime', output_modalities: [audio ? 'audio' : 'text'], instructions,
           audio: { input: { turn_detection: null }, output: { format: { type: 'audio/pcm', rate: 24000 }, voice } },
         } });
-        if (event.type === 'session.updated') {
+        if (event.type === 'session.updated' && !requested) {
+          requested = true;
           send({ type: 'conversation.item.create', item: { type: 'message', role: 'user', content: [{ type: 'input_text', text }] } });
           send({ type: 'response.create', response: { output_modalities: [audio ? 'audio' : 'text'], max_output_tokens: audio ? 3000 : 400 } });
         }

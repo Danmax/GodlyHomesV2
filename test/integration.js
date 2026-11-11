@@ -285,6 +285,7 @@ try {
       await page.screenshot({ path: 'test-results/studio-record.png', fullPage: true });
       await page.getByRole('button', { name: 'Arrange your episode' }).click();
       await page.locator('.segment-name').first().click();
+      await page.getByText('Precise range cut', { exact: true }).click();
       await page.getByRole('heading', { name: 'Refine this clip' }).waitFor();
       await page.locator('audio').evaluate(audio => new Promise((resolve, reject) => {
         if (Number.isFinite(audio.duration) && audio.duration > 0) return resolve();
