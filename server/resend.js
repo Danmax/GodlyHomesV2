@@ -13,12 +13,12 @@ export function createResendMailer(env, request = fetch) {
     // A sending-only key cannot use account-management endpoints. A real send
     // is required to validate the key and domain; this checks configuration only.
     verify: async () => undefined,
-    send: async ({ to, subject, text, idempotencyKey = randomUUID() }) => {
+    send: async ({ to, subject, text, html, idempotencyKey = randomUUID() }) => {
       z.email().max(254).parse(to);
       const response = await request('https://api.resend.com/emails', {
         method: 'POST',
         headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
-        body: JSON.stringify({ from: `Godly Homes <${from}>`, to: [to], subject, text }),
+        body: JSON.stringify({ from: `Godly Homes <${from}>`, to: [to], subject, text, ...(html ? { html } : {}) }),
         signal: AbortSignal.timeout(20000), redirect: 'error',
       });
       const result = await response.json().catch(() => ({}));

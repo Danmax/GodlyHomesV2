@@ -36,9 +36,9 @@ export function createGmailMailer(env, request = fetch) {
     ready: true, provider: 'gmail',
     // Validates the refresh grant; a real send is needed to test Gmail delivery.
     verify: () => accessToken().then(() => undefined),
-    send: async ({ to, subject, text }) => {
+    send: async ({ to, subject, text, html }) => {
       z.email().max(254).parse(to);
-      const message = await composer.sendMail({ from: { name: 'Godly Homes', address: from }, to, subject, text });
+      const message = await composer.sendMail({ from: { name: 'Godly Homes', address: from }, to, subject, text, ...(html ? { html } : {}) });
       const raw = message.message.toString('base64url');
       for (let attempt = 0; attempt < 2; attempt++) {
         const token = await accessToken();

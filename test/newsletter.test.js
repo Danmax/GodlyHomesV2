@@ -10,7 +10,7 @@ test('newsletter requires its own contacts key and treats names as optional', as
     calls.push({ url, options });
     return options.method === 'GET' ? Response.json({}, { status: 404 }) : Response.json({ id: 'contact-id' });
   });
-  assert.deepEqual(await client.add('some+news@example.com'), { id: 'contact-id' });
+  assert.deepEqual(await client.add('some+news@example.com'), { id: 'contact-id', unsubscribed: false });
   assert.equal(calls[0].url, 'https://api.resend.com/contacts/some%2Bnews%40example.com');
   assert.equal(calls[1].options.headers.Authorization, 'Bearer contacts-key');
   assert.deepEqual(JSON.parse(calls[1].options.body), { email: 'some+news@example.com' });

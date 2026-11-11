@@ -45,6 +45,8 @@ try {
   await testUserManagement({ createApp, rows, hashPassword, origin: 'http://localhost:5173' });
   const { testNewsletter } = await import('./newsletter-integration.js');
   await testNewsletter({ createApp, rows, origin: 'http://localhost:5173' });
+  const { testNewsletterStudio } = await import('./newsletter-studio-integration.js');
+  await testNewsletterStudio({ createApp, rows, hashPassword, origin: 'http://localhost:5173' });
   const app = await createApp({ mailer: { ready: true, send: async () => {} } });
   const origin = 'http://localhost:5173';
   const userId = randomUUID(), otherId = randomUUID();

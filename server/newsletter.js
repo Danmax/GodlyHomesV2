@@ -24,18 +24,19 @@ export function createNewsletterClient(env = process.env, request = fetch) {
   }
   return {
     ready: true, segmentId,
-    add: async email => {
+    add: async (email, profile = {}) => {
       z.email().max(254).parse(email);
       const path = `/contacts/${encodeURIComponent(email)}`;
       let contact = await call(path, { allowMissing: true });
       if (!contact) {
         // Omitting subscription status also protects against races/upserts:
         // never overwrite an existing contact's unsubscribe preference.
-        contact = await call('/contacts', { method: 'POST', body: { email } });
+        contact = await call('/contacts', { method: 'POST', body: { email, ...(profile.firstName ? { first_name: profile.firstName } : {}), ...(profile.lastName ? { last_name: profile.lastName } : {}) } });
       }
       if (typeof contact.id !== 'string' || !contact.id) throw failed(502);
+      if (profile.resubscribe) await call(`/contacts/${encodeURIComponent(contact.id)}`, { method: 'PATCH', body: { unsubscribed: false } });
       if (segmentId) await call(`/contacts/${encodeURIComponent(contact.id)}/segments/${segmentId}`, { method: 'POST' });
-      return { id: contact.id };
+      return { id: contact.id, unsubscribed: profile.resubscribe ? false : Boolean(contact.unsubscribed) };
     },
   };
 }
@@ -46,17 +47,17 @@ export async function syncNewsletterSubscriber(email, client) {
     const query = (sql, values) => rows(sql, values, connection);
     const [subscriber] = await query(`SELECT *, resend_retry_at > UTC_TIMESTAMP() AS cooling_down,
       resend_lease_until > UTC_TIMESTAMP() AS leased FROM subscribers WHERE email = ? FOR UPDATE`, [email]);
-    if (!subscriber || !subscriber.confirmed_at || subscriber.cooling_down || subscriber.leased || (subscriber.resend_synced_at && (subscriber.resend_segment_id || null) === client.segmentId)) return null;
+    if (!subscriber || subscriber.newsletter_unsubscribed_at || !subscriber.confirmed_at || subscriber.cooling_down || subscriber.leased || (subscriber.resend_synced_at && (subscriber.resend_segment_id || null) === client.segmentId)) return null;
     const lease = randomUUID();
     await query('UPDATE subscribers SET resend_lease_token = ?, resend_lease_until = DATE_ADD(UTC_TIMESTAMP(), INTERVAL 2 MINUTE) WHERE email = ?', [lease, email]);
     return { subscriber, lease };
   });
   if (!claim) return;
   try {
-    const contact = await client.add(claim.subscriber.email);
+    const contact = await client.add(claim.subscriber.email, { firstName: claim.subscriber.first_name, lastName: claim.subscriber.last_name, resubscribe: Boolean(claim.subscriber.resubscribe_pending) });
     await rows(`UPDATE subscribers SET resend_contact_id = ?, resend_segment_id = ?, resend_synced_at = UTC_TIMESTAMP(),
-      resend_sync_attempts = 0, resend_retry_at = NULL, resend_sync_error = NULL, resend_lease_token = NULL, resend_lease_until = NULL
-      WHERE email = ? AND resend_lease_token = ?`, [contact.id, client.segmentId, email, claim.lease]);
+      resend_sync_attempts = 0, resend_retry_at = NULL, resend_sync_error = NULL, resend_lease_token = NULL, resend_lease_until = NULL, resubscribe_pending = FALSE, resend_unsubscribed = ?, resend_status_checked_at = UTC_TIMESTAMP()
+      WHERE email = ? AND resend_lease_token = ?`, [contact.id, client.segmentId, typeof contact.unsubscribed === 'boolean' ? contact.unsubscribed : null, email, claim.lease]);
   } catch (error) {
     const code = typeof error.code === 'string' && /^[A-Z0-9_]{1,80}$/.test(error.code) ? error.code : 'NEWSLETTER_SYNC_ERROR';
     const retrySeconds = Math.min(3600, 60 * 2 ** Math.min(Number(claim.subscriber.resend_sync_attempts), 6));
@@ -70,7 +71,7 @@ export async function syncNewsletterSubscriber(email, client) {
 export async function syncPendingNewsletter(client, limit = 10) {
   if (!client.ready) return;
   const pending = await rows(`SELECT email FROM subscribers
-    WHERE confirmed_at IS NOT NULL AND (resend_synced_at IS NULL OR COALESCE(resend_segment_id, '') <> ?)
+    WHERE newsletter_unsubscribed_at IS NULL AND confirmed_at IS NOT NULL AND (resend_synced_at IS NULL OR COALESCE(resend_segment_id, '') <> ?)
       AND (resend_retry_at IS NULL OR resend_retry_at <= UTC_TIMESTAMP())
       AND (resend_lease_until IS NULL OR resend_lease_until <= UTC_TIMESTAMP())
     ORDER BY consent_at LIMIT ?`, [client.segmentId || '', limit]);
@@ -84,7 +85,7 @@ export async function requestNewsletterConfirmation(email, mailer) {
     await query('INSERT IGNORE INTO subscribers (email) VALUES (?)', [email]);
     const [subscriber] = await query(`SELECT *, confirmation_requested_at > DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 MINUTE) AS cooling_down
       FROM subscribers WHERE email = ? FOR UPDATE`, [email]);
-    if (subscriber.confirmed_at || subscriber.cooling_down) return null;
+    if (subscriber.cooling_down) return null;
     const token = randomBytes(32).toString('hex'), hash = digest(token);
     await query(`UPDATE subscribers SET confirmation_token_hash = ?, confirmation_requested_at = UTC_TIMESTAMP(),
       confirmation_expires_at = DATE_ADD(UTC_TIMESTAMP(), INTERVAL 24 HOUR), confirmation_sent_at = NULL WHERE email = ?`, [hash, email]);
@@ -107,9 +108,10 @@ export async function confirmNewsletter(token, client) {
   if (!candidate) throw invalid();
   await transaction(async connection => {
     const query = (sql, values) => rows(sql, values, connection);
-    const [subscriber] = await query('SELECT *, confirmation_expires_at > UTC_TIMESTAMP() AS valid FROM subscribers WHERE email = ? FOR UPDATE', [candidate.email]);
-    if (!subscriber || subscriber.confirmed_at || subscriber.confirmation_token_hash !== hash || !subscriber.valid) throw invalid();
-    await query('UPDATE subscribers SET confirmed_at = UTC_TIMESTAMP(), confirmation_token_hash = NULL, confirmation_expires_at = NULL WHERE email = ?', [candidate.email]);
+    const [subscriber] = await query('SELECT *, confirmation_expires_at > UTC_TIMESTAMP() AS valid, resend_lease_until > UTC_TIMESTAMP() AS leased FROM subscribers WHERE email = ? FOR UPDATE', [candidate.email]);
+    if (!subscriber || subscriber.confirmation_token_hash !== hash || !subscriber.valid) throw invalid();
+    if (subscriber.leased) throw Object.assign(new Error('Your subscription is being updated. Please try this confirmation link again shortly.'), { status: 409 });
+    await query('UPDATE subscribers SET confirmed_at = UTC_TIMESTAMP(), confirmation_token_hash = NULL, confirmation_expires_at = NULL, newsletter_unsubscribed_at = NULL, resubscribe_pending = TRUE, resend_synced_at = NULL WHERE email = ?', [candidate.email]);
   });
   try { await syncNewsletterSubscriber(candidate.email, client); }
   catch (error) { console.error('Confirmed newsletter sync pending:', error.code || 'sync_error'); }

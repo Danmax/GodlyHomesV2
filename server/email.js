@@ -24,8 +24,8 @@ export function createMailer(env = process.env, transportFactory = nodemailer.cr
   return {
     ready: true, provider: 'smtp',
     verify: () => transport.verify(),
-    send: async ({ to, subject, text }) => {
-      const result = await transport.sendMail({ from: { name: 'Godly Homes', address: from }, to, subject, text });
+    send: async ({ to, subject, text, html }) => {
+      const result = await transport.sendMail({ from: { name: 'Godly Homes', address: from }, to, subject, text, ...(html ? { html } : {}) });
       if (!result.accepted?.length) throw new Error('The email server did not accept the recipient.');
     },
   };

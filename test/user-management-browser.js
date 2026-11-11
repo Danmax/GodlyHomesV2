@@ -41,6 +41,7 @@ export async function testUserManagementBrowser(page, origin) {
   const nav = page.getByRole('navigation', { name: 'Website administration' });
   assert.equal(await nav.getByRole('button', { name: 'Orders', exact: true }).count(), 0);
   assert.equal(await nav.getByRole('button', { name: 'Store items', exact: true }).count(), 0);
+  assert.equal(await nav.getByRole('button', { name: 'Newsletters & members', exact: true }).count(), 0);
   await nav.getByRole('button', { name: 'About page', exact: true }).click();
   await page.getByLabel('About headline', { exact: true }).waitFor();
   await nav.getByRole('button', { name: 'Podcast episodes', exact: true }).click();

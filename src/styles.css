@@ -362,3 +362,27 @@ audio { width: 100%; margin-top: 14px; }
 .user-admin-actions { flex-wrap: wrap; }
 
 .user-admin-card fieldset { min-width: 0; border: 0; padding: 0; }
+
+.newsletter-studio { display: grid; gap: 24px; min-width: 0; }
+.newsletter-studio > .row, .newsletter-member-actions { flex-wrap: wrap; }
+.newsletter-welcome { display: flex; justify-content: space-between; align-items: center; gap: 24px; background: #e9eddf; }
+.newsletter-welcome h3 { font: 32px Georgia, serif; margin-bottom: 12px; }
+.newsletter-welcome p { max-width: 580px; line-height: 1.7; }
+.newsletter-draft { width: 100%; text-align: left; display: flex; justify-content: space-between; align-items: center; gap: 18px; }
+.newsletter-compose-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px; align-items: start; }
+.newsletter-compose-grid > *, .newsletter-block, .newsletter-member { min-width: 0; }
+.newsletter-fields { min-width: 0; border: 0; padding: 0; margin: 20px 0 0; }
+.newsletter-theme-options { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 10px; }
+.newsletter-theme { border: 2px solid #ddd5c8; border-radius: 12px; padding: 10px 12px; display: flex; gap: 10px; align-items: center; background: #fffdf8; font-size: 12px; }
+.newsletter-theme.selected { border-color: #52634a; box-shadow: 0 0 0 2px #52634a22; }
+.newsletter-theme span { display: block; height: 25px; width: 28px; border-radius: 4px; background: linear-gradient(#52634a 65%, #c7a45a 65%); }
+.newsletter-theme.navy span { background: linear-gradient(#002b42 65%, #d6a32c 65%); }
+.newsletter-block { border: 1px solid #e0d6c8; border-radius: 14px; padding: 16px; display: grid; gap: 14px; }
+.newsletter-block > .row, .newsletter-preview-column .row { flex-wrap: wrap; }
+.newsletter-block strong, .newsletter-draft strong, .newsletter-member h3 { overflow-wrap: anywhere; }
+.newsletter-preview-column iframe { display: block; border: 1px solid #ddd5c8; border-radius: 10px; height: 760px; margin: 20px auto 0; background: #f4f0e7; }
+.newsletter-preview-empty { display: grid; min-height: 300px; place-content: center; justify-items: center; text-align: center; gap: 16px; color: #687063; }
+.newsletter-grow { flex: 1; min-width: min(220px, 100%); }
+.newsletter-member .admin-field-grid { margin: 20px 0; }
+@media (max-width: 1200px) { .newsletter-compose-grid { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 600px) { .newsletter-welcome { align-items: flex-start; flex-direction: column; } .newsletter-studio .card { padding: 20px; } .newsletter-studio .row { flex-wrap: wrap; } }

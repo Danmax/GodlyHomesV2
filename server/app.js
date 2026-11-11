@@ -11,6 +11,8 @@ import { rows, transaction, json } from './db.js';
 import { accountRoutes } from './account.js';
 import { createMailer } from './email.js';
 import { createNewsletterClient, requestNewsletterConfirmation, confirmNewsletter } from './newsletter.js';
+import { createNewsletterMarketing } from './newsletter-marketing.js';
+import { newsletterStudio } from './newsletter-studio.js';
 import { config } from './config.js';
 import { authenticate, cookieOptions, digest, hashPassword, verifyPassword, requireAdmin, requireStaff } from './auth.js';
 import { episodeSchema, validateAssets } from './validation.js';
@@ -59,7 +61,7 @@ async function deleteEpisode(id, { ownerId, version } = {}) {
   }
 }
 
-export async function createApp({ serveStatic = true, stripeClient, commerceSettings, mailer = createMailer(), newsletter = createNewsletterClient() } = {}) {
+export async function createApp({ serveStatic = true, stripeClient, commerceSettings, mailer = createMailer(), newsletter = createNewsletterClient(), marketing = createNewsletterMarketing() } = {}) {
   await mkdir(path.join(config.mediaDir, 'uploads'), { recursive: true });
   await mkdir(path.join(config.mediaDir, 'exports'), { recursive: true });
   const app = express();
@@ -160,6 +162,7 @@ export async function createApp({ serveStatic = true, stripeClient, commerceSett
   app.use('/api', asyncRoute(authenticate));
   app.use('/api/auth/access', memberAccess);
   app.use('/api/admin/users', userAdmin);
+  app.use('/api/admin/newsletters', newsletterStudio({ marketing, mailer, contacts: newsletter }));
   app.use('/api', (req, res, next) => {
     if (req.user.role === 'member' && !['/auth/me', '/auth/password', '/auth/logout'].includes(req.path)) return res.status(403).json({ error: 'Publisher access is required for the studio.' });
     next();
