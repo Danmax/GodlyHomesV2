@@ -20,11 +20,23 @@ const reflexions = [
 ];
 let browser;
 try {
+  const html = await readFile('dist/index.html', 'utf8');
+  const scriptPath = html.match(/src="([^\"]+\.js)"/)[1];
+  const assetResponse = await fetch(`${origin}${scriptPath}`);
+  assert.equal(assetResponse.status, 200);
+  assert.match(assetResponse.headers.get('cache-control'), /max-age=31536000/);
+  assert.match(assetResponse.headers.get('cache-control'), /immutable/);
+  assert.doesNotMatch((await fetch(origin)).headers.get('cache-control'), /immutable/);
+  const privateResponse = await fetch(`${origin}/api/episodes`);
+  assert.equal(privateResponse.status, 401);
+  assert.equal(privateResponse.headers.get('cache-control'), 'no-store');
   for (const route of ['/about', '/resources', '/store', '/checkout']) {
     assert.equal((await fetch(`${origin}${route}`)).status, 200, `Direct route: ${route}`);
   }
   browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: true });
   const page = await browser.newPage({ reducedMotion: 'reduce' });
+  const studioScripts = new Set();
+  page.on('request', request => { if (/\/assets\/Studio-[^/]+\.js$/.test(new URL(request.url()).pathname)) studioScripts.add(request.url()); });
   await page.route('https://example.com/**', route => route.abort());
   await page.route('**/api/public/episodes', route => route.fulfill({ json: [] }));
   await page.route('**/api/public/website', route => route.fulfill({ json: { documents: defaultDocuments, resources: reflexions, products: [] } }));
@@ -67,12 +79,14 @@ try {
   assert.equal(await page.getByRole('button', { name: /buy|checkout|add to cart/i }).count(), 0);
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(origin);
+  assert.equal(studioScripts.size, 0, 'Public pages do not download the private studio bundle');
   await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: 'About', exact: true }).click();
   await page.getByRole('heading', { level: 1, name: /Faith takes root/ }).waitFor();
   const { testAccountBrowser } = await import('./account-browser.js');
   await testAccountBrowser(page, origin);
   const { testUserManagementBrowser } = await import('./user-management-browser.js');
   await testUserManagementBrowser(page, origin);
+  assert.equal(studioScripts.size, 1, 'Studio code loads on demand for administration');
   const { testNewsletterStudioBrowser } = await import('./newsletter-studio-browser.js');
   await testNewsletterStudioBrowser(page, origin);
   const { testMobilePages } = await import('./mobile-pages.js');
