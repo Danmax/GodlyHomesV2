@@ -11,7 +11,7 @@ test('audio imports reject local-file playlists and still accept common self-con
   try {
     const privateFile = path.join(directory, 'private.wav');
     await run(ffmpeg, ['-hide_banner', '-y', '-f', 'lavfi', '-i', 'sine=frequency=611:duration=1', privateFile]);
-    const playlist = path.join(directory, 'upload.m3u8');
+    const playlist = path.join(directory, 'extensionless-upload');
     await writeFile(playlist, `#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:1\n#EXTINF:1.0,\n${privateFile}\n#EXT-X-ENDLIST\n`);
     await assert.rejects(run(ffmpeg, ['-hide_banner', '-y', ...importInputOptions, '-i', playlist, path.join(directory, 'leak.flac')], 10000), /whitelist/);
     for (const [extension, codec] of [['wav', 'pcm_s16le'], ['mp3', 'libmp3lame'], ['m4a', 'aac'], ['ogg', 'libvorbis'], ['webm', 'libopus'], ['flac', 'flac']]) {
