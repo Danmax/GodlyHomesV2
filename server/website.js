@@ -15,8 +15,10 @@ const kindOf = value => { if (!['resource', 'product'].includes(value)) throw fa
 const mapEntry = row => ({ id: row.id, slug: row.slug, status: row.status, data: json(row.data), version: row.version, sortOrder: row.sort_order, updatedAt: row.updated_at });
 
 export async function publicWebsite() {
-  const documents = await rows('SELECT document_key, data FROM website_documents');
-  const entries = await rows("SELECT kind, id, slug, data FROM website_entries WHERE status = 'published' ORDER BY sort_order, created_at");
+  const [documents, entries] = await Promise.all([
+    rows('SELECT document_key, data FROM website_documents'),
+    rows("SELECT kind, id, slug, data FROM website_entries WHERE status = 'published' ORDER BY sort_order, created_at"),
+  ]);
   return { documents: Object.fromEntries(documents.map(d => [d.document_key, json(d.data)])),
     // Only fully-configured external links are public. Legacy guides remain in
     // Website Admin as drafts until their destination and image are supplied.

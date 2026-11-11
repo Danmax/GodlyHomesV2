@@ -1,7 +1,6 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import Homepage from './Homepage.jsx';
-import Studio from './Studio.jsx';
 import AccountAccess from './AccountAccess.jsx';
 import { PublicEpisode } from './PublicPodcast.jsx';
 import { AboutPage, ResourcesPage, ResourcePage, StorePage, ProductPage, NotFoundPage } from './ContentPages.jsx';
@@ -9,6 +8,8 @@ import { SiteContentProvider } from './SiteContent.jsx';
 import CheckoutPage from './CheckoutPage.jsx';
 import { ChannelDirectory, PublicChannel } from './ChannelPages.jsx';
 import './styles.css';
+
+const Studio = React.lazy(() => import('./Studio.jsx'));
 
 class ErrorBoundary extends React.Component {
   state = { error: false };
@@ -34,4 +35,4 @@ const page = path === '/' ? <Homepage />
           : ['/studio', '/admin'].includes(path) ? <Studio />
             : path.startsWith('/podcast/') ? <PublicEpisode id={path.split('/')[2]} />
               : <NotFoundPage />;
-createRoot(document.getElementById('root')).render(<ErrorBoundary><SiteContentProvider>{page}</SiteContentProvider></ErrorBoundary>);
+createRoot(document.getElementById('root')).render(<ErrorBoundary><SiteContentProvider><React.Suspense fallback={<main className="studio-main"><p className="message" role="status">Loading studio…</p></main>}>{page}</React.Suspense></SiteContentProvider></ErrorBoundary>);

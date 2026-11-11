@@ -368,6 +368,8 @@ export async function createApp({ serveStatic = true, stripeClient, commerceSett
   }));
   app.use('/api', (_req, res) => res.status(404).json({ error: 'Endpoint not found.' }));
   if (serveStatic) {
+    // Vite fingerprints these files; a changed build always gets new URLs.
+    app.use('/assets', express.static(path.resolve('dist/assets'), { maxAge: '1y', immutable: true, index: false }));
     app.use(express.static(path.resolve('dist')));
     app.get(['/', '/about', '/resources', '/resources/:slug', '/store', '/store/:slug', '/checkout', '/admin', '/studio', '/account', '/podcast/:id', '/channels', '/channels/:slug', '/channels/:slug/series/:seriesSlug', '/authors/:slug'], (_req, res) => res.sendFile(path.resolve('dist/index.html')));
   }

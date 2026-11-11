@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import { Mic, Square, Pause, Play, Download } from 'lucide-react';
 import { createRecovery, saveChunk, removeRecovery } from './recovery.js';
 import { uploadAudio } from './api.js';
+import { formatTime } from '../shared/audio-time.js';
 
-export const formatTime = seconds => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`;
+export { formatTime } from '../shared/audio-time.js';
 export function downloadBlob(blob, name) {
   const url = URL.createObjectURL(blob), a = document.createElement('a');
   a.href = url; a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(url), 30000);

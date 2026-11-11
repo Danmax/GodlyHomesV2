@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from './api.js';
 import SiteLayout, { usePageMeta } from './SiteLayout.jsx';
-import { formatTime } from './Recorder.jsx';
+import { formatTime } from '../shared/audio-time.js';
 import PodcastSubscriptions from './PodcastSubscriptions.jsx';
 
 export function EpisodeCard({ episode }) {

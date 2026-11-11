@@ -1,4 +1,4 @@
-import logo from './assets/godly-homes-logo.png';
+import logo from './assets/godly-homes-logo.webp';
 import { useSiteContent } from './SiteContent.jsx';
 
 export default function Logo({ footer = false }) {
