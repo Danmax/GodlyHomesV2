@@ -5,7 +5,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
 import { db, rows, transaction, json } from './db.js';
 import { config } from './config.js';
-import { run, probe, buildMix } from './audio.js';
+import { run, probe, buildMix, canonicalInputOptions } from './audio.js';
 import { prepareWorkerSource, uploadWorkerOutput } from './worker-media.js';
 
 export async function claimJob() {
@@ -39,7 +39,7 @@ export async function processJob(job) {
       if (!asset) throw new Error('Missing source asset');
       indexes.set(id, indexes.size);
       if (id === arrangement.music.assetId) inputs.push('-stream_loop', '-1');
-      inputs.push('-i', await prepareWorkerSource(asset, job));
+      inputs.push(...canonicalInputOptions, '-i', await prepareWorkerSource(asset, job));
     }
     const graph = buildMix(arrangement, indexes);
     // Use two-pass EBU R128 measurement to normalize the actual mix, not an RMS approximation.

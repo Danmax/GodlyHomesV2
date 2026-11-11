@@ -1,6 +1,12 @@
 import { spawn } from 'node:child_process';
 import { config } from './config.js';
 
+// Imported media must be self-contained. HLS/DASH/concat and other playlist
+// demuxers can follow file references even when network protocols are disabled.
+export const importInputOptions = ['-protocol_whitelist', 'file,pipe', '-format_whitelist',
+  'aac,aiff,amr,ape,asf,au,avi,caf,flac,flv,matroska,webm,mov,mp4,m4a,3gp,3g2,mj2,mp3,ogg,wav,wv'];
+export const canonicalInputOptions = ['-protocol_whitelist', 'file,pipe', '-format_whitelist', 'flac', '-f', 'flac'];
+
 export function run(command, args, timeout = 30 * 60 * 1000) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] });

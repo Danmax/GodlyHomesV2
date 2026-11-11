@@ -17,7 +17,7 @@ export async function testUserManagement({ createApp, rows, hashPassword, origin
   }
   const mutate = (user, method, path, body) => user.agent[method](path).set('Origin', origin).set('X-CSRF-Token', user.csrf).send(body);
   const state = async user => (await rows('SELECT * FROM users WHERE id = ?', [user.id]))[0];
-  const change = async (actor, target, body) => mutate(actor, 'patch', `/api/admin/users/${target.id}`, { version: (await state(target)).access_version, ...body });
+  const change = async (actor, target, body) => mutate(actor, 'patch', `/api/admin/users/${target.id}`, { currentPassword: password, version: (await state(target)).access_version, ...body });
   const owner = await account('owner', 'admin'), junior = await account('junior', 'junior_admin'), member = await account('applicant', 'member'), unverified = await account('unverified', 'member', false), second = await account('second-owner', 'admin');
   for (const user of [owner, junior, member, second]) await login(user);
   assert.equal((await request(app).get('/api/admin/users')).status, 401);
@@ -48,6 +48,7 @@ export async function testUserManagement({ createApp, rows, hashPassword, origin
   assert.equal((await junior.agent.get('/api/admin/episodes')).status, 200);
   assert.equal((await mutate(junior, 'delete', `/api/admin/episodes/${randomUUID()}`, { version: 1 })).status, 403);
   assert.equal((await change(junior, owner, { action: 'status', disabled: true })).status, 403);
+  assert.equal((await change(owner, member, { action: 'role', role: 'admin', currentPassword: 'wrong' })).status, 401);
   assert.equal((await change(owner, unverified, { action: 'role', role: 'junior_admin' })).status, 400);
   assert.equal((await change(owner, owner, { action: 'role', role: 'member' })).status, 400, 'Self-demotion is blocked');
   assert.equal((await change(owner, member, { action: 'role', role: 'junior_admin' })).status, 200);
@@ -64,12 +65,13 @@ export async function testUserManagement({ createApp, rows, hashPassword, origin
   const history = await owner.agent.get(`/api/admin/users/${member.id}/history`);
   assert.ok(history.body.some(event => event.action === 'review'));
   assert.ok(history.body.some(event => event.action === 'role'));
+  assert.equal(JSON.stringify(history.body).includes('currentPassword'), false, 'Reauthentication credentials never enter access history');
   assert.equal((await junior.agent.get(`/api/admin/users/${member.id}/history`)).status, 403);
   // Both actors start as full admins; serialization must prevent both demotions.
   const versions = await Promise.all([state(owner), state(second)]);
   const changes = await Promise.all([
-    mutate(owner, 'patch', `/api/admin/users/${second.id}`, { action: 'role', role: 'member', version: versions[1].access_version }),
-    mutate(second, 'patch', `/api/admin/users/${owner.id}`, { action: 'role', role: 'member', version: versions[0].access_version }),
+    mutate(owner, 'patch', `/api/admin/users/${second.id}`, { action: 'role', role: 'member', currentPassword: password, version: versions[1].access_version }),
+    mutate(second, 'patch', `/api/admin/users/${owner.id}`, { action: 'role', role: 'member', currentPassword: password, version: versions[0].access_version }),
   ]);
   assert.equal(changes.filter(r => r.status === 200).length, 1);
   assert.equal((await rows("SELECT COUNT(*) AS total FROM users WHERE id IN (?, ?) AND role = 'admin' AND disabled_at IS NULL", [owner.id, second.id]))[0].total, 1);

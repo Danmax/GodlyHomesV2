@@ -14,14 +14,14 @@ import { createNewsletterClient, syncNewsletterSubscriber } from './newsletter.j
 import { config } from './config.js';
 import { authenticate, cookieOptions, digest, hashPassword, verifyPassword, requireAdmin, requireStaff } from './auth.js';
 import { episodeSchema, validateAssets } from './validation.js';
-import { probe, run } from './audio.js';
+import { probe, run, importInputOptions } from './audio.js';
 import { feed } from './feed.js';
 import { receiveMedia, requireMediaFile, syncEpisodeMedia, mediaFile } from './media.js';
 import { publicWebsite, websiteAdmin, publicImage, imageRoutes } from './website.js';
 import { channelRoutes, publicChannels, channelSlug, channelSummary, seriesSummary, checkSeriesOwner } from './channels.js';
 import { workerMedia } from './worker-media.js';
 import { createCommerce } from './commerce.js';
-import { audioUploadLimit, guardedUpload, storageUsed } from './upload-budget.js';
+import { audioUploadLimit, guardedUpload, storageUsed, withMediaTransferBudget } from './upload-budget.js';
 
 const asyncRoute = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const failure = (message, status = 400) => Object.assign(new Error(message), { status });
@@ -250,7 +250,7 @@ export async function createApp({ serveStatic = true, stripeClient, commerceSett
       stored = path.join(config.mediaDir, storageKey);
       // Canonical lossless audio gives streaming WebM recordings a seekable duration,
       // strips non-audio streams, and keeps source playback consistent across browsers.
-      await run(config.ffmpeg, ['-hide_banner', '-y', '-protocol_whitelist', 'file,pipe', '-i', file.path, '-map', '0:a:0', '-vn', '-t', '7201', '-ar', '44100', '-ac', '2', '-threads', '2', '-fs', String(config.maxProcessedBytes + 1), '-codec:a', 'flac', stored], 10 * 60 * 1000);
+      await run(config.ffmpeg, ['-hide_banner', '-y', ...importInputOptions, '-i', file.path, '-map', '0:a:0', '-vn', '-t', '7201', '-ar', '44100', '-ac', '2', '-threads', '2', '-fs', String(config.maxProcessedBytes + 1), '-codec:a', 'flac', stored], 10 * 60 * 1000);
       const { size } = await stat(stored);
       if (size > config.maxProcessedBytes) throw failure('The processed recording exceeds the audio storage limit. Shorten the recording and retry.', 413);
       const duration = await probe(stored);
@@ -275,7 +275,7 @@ export async function createApp({ serveStatic = true, stripeClient, commerceSett
   app.put('/api/assets/:id/audio', asyncRoute(async (req, res) => {
     const [asset] = await rows('SELECT * FROM assets WHERE id = ? AND user_id = ?', [req.params.id, req.user.id]);
     if (!asset) throw failure('Audio source not found.', 404);
-    await receiveMedia(req, asset.storage_key, asset.bytes);
+    await withMediaTransferBudget(req.user.id, () => receiveMedia(req, asset.storage_key, asset.bytes));
     res.json({ ok: true });
   }));
   app.get('/api/episodes/:id/jobs', asyncRoute(async (req, res) => {
@@ -319,7 +319,7 @@ export async function createApp({ serveStatic = true, stripeClient, commerceSett
   app.put('/api/jobs/:id/audio', asyncRoute(async (req, res) => {
     const [job] = await rows("SELECT j.* FROM render_jobs j JOIN episodes e ON e.id = j.episode_id WHERE j.id = ? AND e.user_id = ? AND j.state = 'ready'", [req.params.id, req.user.id]);
     if (!job) throw failure('Rendered audio is not available.', 404);
-    await receiveMedia(req, job.output_key, job.bytes);
+    await withMediaTransferBudget(req.user.id, () => receiveMedia(req, job.output_key, job.bytes));
     res.json({ ok: true });
   }));
   app.post('/api/episodes/:id/publish', asyncRoute(async (req, res) => {

@@ -29,6 +29,7 @@ export async function testUserManagementBrowser(page, origin) {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(`${origin}/admin`);
   await page.getByLabel('Account role', { exact: true }).selectOption('junior_admin');
+  await page.getByLabel('Your password to confirm access changes', { exact: true }).fill('owner-password-123');
   page.once('dialog', dialog => dialog.accept());
   await page.getByRole('button', { name: 'Save role', exact: true }).click();
   await page.getByRole('status').filter({ hasText: 'Account updated' }).waitFor();

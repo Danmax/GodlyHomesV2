@@ -37,7 +37,7 @@ export function accountMessage(purpose, token) {
   url.hash = new URLSearchParams({ action: purpose, token }).toString();
   if (purpose === 'verify') return {
     subject: 'Verify your Godly Homes email',
-    text: `Welcome to Godly Homes!\n\nConfirm your email address to finish creating your account:\n${url.href}\n\nThis link expires in 24 hours and works once. If you did not create an account, you can ignore this email.`,
+    text: `Welcome to Godly Homes!\n\nConfirm your email address and choose your password to finish creating your account:\n${url.href}\n\nThis link expires in 24 hours and works once. If you did not create an account, you can ignore this email.`,
   };
   return {
     subject: 'Reset your Godly Homes password',
@@ -45,10 +45,8 @@ export function accountMessage(purpose, token) {
   };
 }
 
-// Called while holding the user's row lock. Failed delivery leaves the welcome
-// pending, so the server's periodic sweep can retry it after a delivery outage.
-export async function sendWelcome(user, mailer, query) {
-  if (user.welcome_sent_at || !user.email_verified_at) return;
+// Delivery runs after a short database lease has been acquired and committed.
+export async function sendWelcome(user, mailer) {
+  if (user.disabled_at || user.welcome_sent_at || !user.email_verified_at) return;
   await mailer.send({ to: user.email, idempotencyKey: `welcome-user/${user.id}`, subject: 'Welcome to Godly Homes', text: `Your email is verified. Welcome to Godly Homes!\n\nWe are glad you are here. Explore encouragement, podcasts, and resources for your home:\n${config.origin}/\n\nManage your account at ${config.origin}/studio.\n\nWith love,\nThe Godly Homes team` });
-  await query('UPDATE users SET welcome_sent_at = UTC_TIMESTAMP() WHERE id = ?', [user.id]);
 }

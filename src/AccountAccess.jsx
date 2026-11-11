@@ -26,8 +26,8 @@ export default function AccountAccess({ onLogin = () => { location.href = '/stud
     } catch (error) { setError(error.message); } finally { setBusy(false); }
   };
   const title = { login: 'Welcome to Godly Homes.', register: 'Create your account.', forgot: 'Reset your password.', resend: 'Verify your email.', verify: 'Confirm your email.', reset: 'Choose a new password.', complete: 'You’re all set.' }[mode];
-  const needsPassword = ['login', 'register', 'reset'].includes(mode);
-  const newPassword = ['register', 'reset'].includes(mode);
+  const needsPassword = ['login', 'verify', 'reset'].includes(mode);
+  const newPassword = ['verify', 'reset'].includes(mode);
   const needsEmail = ['login', 'register', 'forgot', 'resend'].includes(mode);
   const emailUnavailable = mode !== 'login' && mode !== 'complete' && options && !options.emailEnabled;
   const label = { login: 'Sign in', register: 'Create account', forgot: 'Send reset email', resend: 'Resend verification', verify: 'Verify my email', reset: 'Save new password' }[mode];
@@ -35,9 +35,9 @@ export default function AccountAccess({ onLogin = () => { location.href = '/stud
     <Logo />
     <form className="card" onSubmit={submit}>
       <p className="eyebrow">A place to grow together</p><h1>{title}</h1>
-      {mode === 'register' && <p className="muted small">We’ll email a link to verify your address, followed by a welcome when you confirm. Use at least 12 characters for your password.</p>}
+      {mode === 'register' && <p className="muted small">We’ll email a link to verify your address and choose your password, followed by a welcome when you confirm.</p>}
       {mode === 'forgot' && <p className="muted small">Enter your account email. The reset link is valid for 30 minutes.</p>}
-      {mode === 'verify' && <p className="muted small">Confirm below to finish setting up your Godly Homes account.</p>}
+      {mode === 'verify' && <p className="muted small">Choose a password of at least 12 characters to verify your email and finish setting up your Godly Homes account.</p>}
       {mode === 'reset' && <p className="muted small">Use at least 12 characters. Resetting signs out all previous sessions.</p>}
       {emailUnavailable && <p className="message" role="status">Account email is being set up. Please try again later.</p>}
       <div className="fields">

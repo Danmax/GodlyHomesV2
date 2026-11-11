@@ -23,7 +23,7 @@ export function accountRoutes(mailer) {
 
   async function requestLink(email, purpose) {
     // Serializing on the user prevents concurrent requests bypassing the cooldown.
-    await transaction(async connection => {
+    const delivery = await transaction(async connection => {
       const query = (sql, values) => rows(sql, values, connection);
       const [user] = await query('SELECT * FROM users WHERE email = ? FOR UPDATE', [email]);
       if (!user || user.disabled_at || (purpose === 'verify' ? user.email_verified_at : (user.email_verification_required && !user.email_verified_at))) return;
@@ -32,9 +32,13 @@ export function accountRoutes(mailer) {
       const token = randomBytes(32).toString('hex');
       await query('DELETE FROM account_tokens WHERE user_id = ? AND purpose = ?', [user.id, purpose]);
       await query(`INSERT INTO account_tokens (token_hash, user_id, purpose, created_at, expires_at) VALUES (?, ?, ?, UTC_TIMESTAMP(), DATE_ADD(UTC_TIMESTAMP(), INTERVAL ${purpose === 'verify' ? '24 HOUR' : '30 MINUTE'}))`, [digest(token), user.id, purpose]);
-      // A delivery failure rolls back the token replacement, allowing a retry.
-      await mailer.send({ to: user.email, ...accountMessage(purpose, token) });
+      return { tokenHash: digest(token), message: { to: user.email, ...accountMessage(purpose, token) } };
     });
+    if (!delivery) return;
+    // Never hold a database connection or row lock during an external API call.
+    // A failed/uncertain send retains the random hash and its resend cooldown.
+    await mailer.send(delivery.message);
+    await rows('UPDATE account_tokens SET sent_at = UTC_TIMESTAMP() WHERE token_hash = ?', [delivery.tokenHash]);
   }
   async function deliverLink(email, purpose) {
     try { await requestLink(email, purpose); }
@@ -45,9 +49,9 @@ export function accountRoutes(mailer) {
   }
   router.post('/register', wrap(async (req, res) => {
     if (!registrationEnabled) return res.status(403).json({ error: 'New registration is currently closed.' });
-    const input = z.object({ email: emailSchema, password: passwordSchema, confirmPassword: passwordSchema }).parse(req.body);
-    if (input.password !== input.confirmPassword) return res.status(400).json({ error: 'The passwords do not match.' });
-    const passwordHash = await hashPassword(input.password);
+    const input = z.object({ email: emailSchema }).parse(req.body);
+    // No password supplied before email ownership is proved becomes active.
+    const passwordHash = await hashPassword(randomBytes(32).toString('hex'));
     await rows("INSERT IGNORE INTO users (id, email, password_hash, role, email_verification_required) VALUES (?, ?, ?, 'member', TRUE)", [randomUUID(), input.email, passwordHash]);
     await deliverLink(input.email, 'verify');
     res.json(generic);
@@ -73,10 +77,13 @@ export function accountRoutes(mailer) {
     });
   }
   router.post('/verify-email', wrap(async (req, res) => {
-    const { token } = z.object({ token: tokenSchema }).parse(req.body);
+    const { token, password, confirmPassword } = z.object({ token: tokenSchema, password: passwordSchema, confirmPassword: passwordSchema }).parse(req.body);
+    if (password !== confirmPassword) return res.status(400).json({ error: 'The passwords do not match.' });
+    const hash = await hashPassword(password);
     const id = await consume(token, 'verify', async (user, query) => {
       if (user.email_verified_at) throw invalid();
-      await query('UPDATE users SET email_verified_at = UTC_TIMESTAMP() WHERE id = ?', [user.id]);
+      await query('UPDATE users SET email_verified_at = UTC_TIMESTAMP(), password_hash = ? WHERE id = ?', [hash, user.id]);
+      await query('DELETE FROM sessions WHERE user_id = ?', [user.id]);
     });
     try { await deliverWelcome(id, mailer); }
     catch (error) { console.error('Welcome email pending:', error.code || 'delivery_error'); }
@@ -97,15 +104,36 @@ export function accountRoutes(mailer) {
 }
 
 export async function deliverWelcome(id, mailer) {
-  return transaction(async connection => {
+  const claim = await transaction(async connection => {
     const query = (sql, values) => rows(sql, values, connection);
-    const [user] = await query('SELECT * FROM users WHERE id = ? FOR UPDATE', [id]);
-    if (user) await sendWelcome(user, mailer, query);
+    const [user] = await query(`SELECT *, welcome_lease_until > UTC_TIMESTAMP() AS leased,
+      welcome_retry_at > UTC_TIMESTAMP() AS cooling_down FROM users WHERE id = ? FOR UPDATE`, [id]);
+    if (!user || user.disabled_at || !user.email_verified_at || user.welcome_sent_at || user.leased || user.cooling_down) return null;
+    const lease = randomUUID();
+    await query('UPDATE users SET welcome_lease_token = ?, welcome_lease_until = DATE_ADD(UTC_TIMESTAMP(), INTERVAL 2 MINUTE) WHERE id = ?', [lease, id]);
+    return { user, lease };
   });
+  if (!claim) return;
+  try {
+    await sendWelcome(claim.user, mailer);
+    await rows(`UPDATE users SET welcome_sent_at = UTC_TIMESTAMP(), welcome_lease_token = NULL, welcome_lease_until = NULL,
+      welcome_retry_at = NULL, welcome_attempts = 0 WHERE id = ? AND welcome_lease_token = ?`, [id, claim.lease]);
+  } catch (error) {
+    const delay = Math.min(3600, 60 * 2 ** Math.min(Number(claim.user.welcome_attempts), 6));
+    await rows(`UPDATE users SET welcome_lease_token = NULL, welcome_lease_until = NULL,
+      welcome_attempts = welcome_attempts + 1, welcome_retry_at = DATE_ADD(UTC_TIMESTAMP(), INTERVAL ? SECOND)
+      WHERE id = ? AND welcome_lease_token = ?`, [delay, id, claim.lease]);
+    throw error;
+  }
 }
 export async function retryAccountEmail(mailer) {
   if (!mailer.ready) return;
   await rows('DELETE FROM account_tokens WHERE expires_at <= UTC_TIMESTAMP()');
-  const pending = await rows('SELECT id FROM users WHERE email_verified_at IS NOT NULL AND welcome_sent_at IS NULL LIMIT 20');
-  for (const user of pending) await deliverWelcome(user.id, mailer);
+  const pending = await rows(`SELECT id FROM users WHERE disabled_at IS NULL AND email_verified_at IS NOT NULL AND welcome_sent_at IS NULL
+    AND (welcome_retry_at IS NULL OR welcome_retry_at <= UTC_TIMESTAMP())
+    AND (welcome_lease_until IS NULL OR welcome_lease_until <= UTC_TIMESTAMP()) ORDER BY welcome_retry_at, created_at LIMIT 20`);
+  for (const user of pending) {
+    try { await deliverWelcome(user.id, mailer); }
+    catch (error) { console.error('Welcome email retry pending:', error.code || 'delivery_error'); }
+  }
 }

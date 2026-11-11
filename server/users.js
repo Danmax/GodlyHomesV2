@@ -3,11 +3,12 @@ import { randomUUID } from 'node:crypto';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import { rows, transaction, json } from './db.js';
-import { requireStaff } from './auth.js';
+import { requireStaff, verifyPassword } from './auth.js';
 
 const wrap = fn => (req, res, next) => Promise.resolve(fn(req, res)).catch(next);
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
 const verified = user => !user.email_verification_required || Boolean(user.email_verified_at);
+const currentPassword = z.string().min(1, 'Confirm this change with your password.').max(200);
 const version = z.number().int().positive();
 const summary = user => ({ id: user.id, email: user.email, role: user.role, version: user.access_version,
   verified: verified(user), disabled: Boolean(user.disabled_at), createdAt: user.created_at,
@@ -45,12 +46,12 @@ userAdmin.get('/', wrap(async (req, res) => {
   const users = await rows(`SELECT * FROM users${where} ORDER BY created_at DESC, id LIMIT 50 OFFSET ${(input.page - 1) * 50}`, values);
   res.json({ users: users.map(summary), total: Number(count.total), page: input.page });
 }));
-userAdmin.patch('/:id', wrap(async (req, res) => {
+userAdmin.patch('/:id', rateLimit({ windowMs: 15 * 60000, limit: 30, keyGenerator: req => req.user.id, legacyHeaders: false }), wrap(async (req, res) => {
   const id = z.uuid().parse(req.params.id);
   const input = z.discriminatedUnion('action', [
-    z.object({ action: z.literal('role'), version, role: z.enum(['member', 'publisher', 'junior_admin', 'admin']) }),
-    z.object({ action: z.literal('status'), version, disabled: z.boolean() }),
-    z.object({ action: z.literal('sessions'), version }),
+    z.object({ action: z.literal('role'), version, currentPassword, role: z.enum(['member', 'publisher', 'junior_admin', 'admin']) }),
+    z.object({ action: z.literal('status'), version, currentPassword, disabled: z.boolean() }),
+    z.object({ action: z.literal('sessions'), version, currentPassword }),
     z.object({ action: z.literal('review'), version, approve: z.boolean(), feedback: z.string().trim().max(300).default('') }),
   ]).parse(req.body);
   await transaction(async connection => {
@@ -64,6 +65,7 @@ userAdmin.patch('/:id', wrap(async (req, res) => {
     if (!target) throw fail('User not found.', 404);
     if (target.access_version !== input.version) throw fail('This account changed. Refresh before trying again.', 409);
     if (actor.role !== 'admin' && input.action !== 'review') throw fail('Only a full administrator can change account access.', 403);
+    if (input.action !== 'review' && !(await verifyPassword(input.currentPassword, actor.password_hash))) throw fail('Your current password is incorrect.', 401);
     if (actor.id === target.id && ['role', 'status', 'sessions'].includes(input.action)) throw fail('Use another full administrator to change your own access.');
     const before = { role: target.role, disabled: Boolean(target.disabled_at), podcasterStatus: target.podcaster_status };
     if (input.action === 'review') {
@@ -86,7 +88,8 @@ userAdmin.patch('/:id', wrap(async (req, res) => {
     }
     await query('UPDATE users SET access_version = access_version + 1 WHERE id = ?', [id]);
     await query('DELETE FROM sessions WHERE user_id = ?', [id]);
-    await query('INSERT INTO user_access_events (id, actor_id, target_id, action, details, created_at) VALUES (?, ?, ?, ?, ?, UTC_TIMESTAMP())', [randomUUID(), actor.id, id, input.action, JSON.stringify({ before, change: input })]);
+    const { currentPassword: _password, ...auditChange } = input;
+    await query('INSERT INTO user_access_events (id, actor_id, target_id, action, details, created_at) VALUES (?, ?, ?, ?, ?, UTC_TIMESTAMP())', [randomUUID(), actor.id, id, input.action, JSON.stringify({ before, change: auditChange })]);
   });
   res.json({ message: 'Account updated. Previous sessions have been signed out.' });
 }));

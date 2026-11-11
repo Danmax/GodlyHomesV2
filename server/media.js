@@ -37,7 +37,7 @@ export async function receiveMedia(req, key, expectedBytes) {
   const expectedHash = req.headers['x-content-sha256'];
   if (typeof expectedHash !== 'string' || !/^[a-f0-9]{64}$/.test(expectedHash)) throw fail('A SHA-256 checksum is required.');
   const bytes = Number(expectedBytes);
-  if (!Number.isSafeInteger(bytes) || bytes <= 0 || bytes > 2 * 1024 * 1024 * 1024) throw fail('Audio file size is invalid.');
+  if (!Number.isSafeInteger(bytes) || bytes <= 0 || bytes > config.maxBytes) throw fail('Audio file size is invalid.');
   const destination = mediaFile(key);
   await mkdir(path.dirname(destination), { recursive: true });
   const temporary = `${destination}.incoming-${randomUUID()}`;

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { rows, transaction } from './db.js';
 
@@ -39,23 +40,29 @@ export function createNewsletterClient(env = process.env, request = fetch) {
 
 export async function syncNewsletterSubscriber(email, client) {
   if (!client.ready) return;
-  await transaction(async connection => {
+  const claim = await transaction(async connection => {
     const query = (sql, values) => rows(sql, values, connection);
-    const [subscriber] = await query(`SELECT *, resend_retry_at > UTC_TIMESTAMP() AS cooling_down
-      FROM subscribers WHERE email = ? FOR UPDATE`, [email]);
-    if (!subscriber || subscriber.cooling_down || (subscriber.resend_synced_at && (subscriber.resend_segment_id || null) === client.segmentId)) return;
-    try {
-      const contact = await client.add(subscriber.email);
-      await query(`UPDATE subscribers SET resend_contact_id = ?, resend_segment_id = ?, resend_synced_at = UTC_TIMESTAMP(),
-        resend_sync_attempts = 0, resend_retry_at = NULL, resend_sync_error = NULL WHERE email = ?`, [contact.id, client.segmentId, subscriber.email]);
-    } catch (error) {
-      const code = typeof error.code === 'string' && /^[A-Z0-9_]{1,80}$/.test(error.code) ? error.code : 'NEWSLETTER_SYNC_ERROR';
-      const retrySeconds = Math.min(3600, 60 * 2 ** Math.min(Number(subscriber.resend_sync_attempts), 6));
-      await query(`UPDATE subscribers SET resend_sync_attempts = resend_sync_attempts + 1,
-        resend_retry_at = DATE_ADD(UTC_TIMESTAMP(), INTERVAL ? SECOND), resend_sync_error = ? WHERE email = ?`, [retrySeconds, code, subscriber.email]);
-      console.error('Newsletter contact sync pending:', code);
-    }
+    const [subscriber] = await query(`SELECT *, resend_retry_at > UTC_TIMESTAMP() AS cooling_down,
+      resend_lease_until > UTC_TIMESTAMP() AS leased FROM subscribers WHERE email = ? FOR UPDATE`, [email]);
+    if (!subscriber || subscriber.cooling_down || subscriber.leased || (subscriber.resend_synced_at && (subscriber.resend_segment_id || null) === client.segmentId)) return null;
+    const lease = randomUUID();
+    await query('UPDATE subscribers SET resend_lease_token = ?, resend_lease_until = DATE_ADD(UTC_TIMESTAMP(), INTERVAL 2 MINUTE) WHERE email = ?', [lease, email]);
+    return { subscriber, lease };
   });
+  if (!claim) return;
+  try {
+    const contact = await client.add(claim.subscriber.email);
+    await rows(`UPDATE subscribers SET resend_contact_id = ?, resend_segment_id = ?, resend_synced_at = UTC_TIMESTAMP(),
+      resend_sync_attempts = 0, resend_retry_at = NULL, resend_sync_error = NULL, resend_lease_token = NULL, resend_lease_until = NULL
+      WHERE email = ? AND resend_lease_token = ?`, [contact.id, client.segmentId, email, claim.lease]);
+  } catch (error) {
+    const code = typeof error.code === 'string' && /^[A-Z0-9_]{1,80}$/.test(error.code) ? error.code : 'NEWSLETTER_SYNC_ERROR';
+    const retrySeconds = Math.min(3600, 60 * 2 ** Math.min(Number(claim.subscriber.resend_sync_attempts), 6));
+    await rows(`UPDATE subscribers SET resend_sync_attempts = resend_sync_attempts + 1,
+      resend_retry_at = DATE_ADD(UTC_TIMESTAMP(), INTERVAL ? SECOND), resend_sync_error = ?, resend_lease_token = NULL, resend_lease_until = NULL
+      WHERE email = ? AND resend_lease_token = ?`, [retrySeconds, code, email, claim.lease]);
+    console.error('Newsletter contact sync pending:', code);
+  }
 }
 
 export async function syncPendingNewsletter(client, limit = 10) {
@@ -63,6 +70,7 @@ export async function syncPendingNewsletter(client, limit = 10) {
   const pending = await rows(`SELECT email FROM subscribers
     WHERE (resend_synced_at IS NULL OR COALESCE(resend_segment_id, '') <> ?)
       AND (resend_retry_at IS NULL OR resend_retry_at <= UTC_TIMESTAMP())
+      AND (resend_lease_until IS NULL OR resend_lease_until <= UTC_TIMESTAMP())
     ORDER BY consent_at LIMIT ?`, [client.segmentId || '', limit]);
   for (const subscriber of pending) await syncNewsletterSubscriber(subscriber.email, client);
 }

@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { reserveUpload } from '../server/upload-budget.js';
+import { reserveUpload, withMediaTransferBudget } from '../server/upload-budget.js';
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { config } from '../server/config.js';
 
 export async function testUploadSecurity({ rows, userId, otherId, mutate, fixture, arrangement }) {
@@ -13,6 +16,15 @@ export async function testUploadSecurity({ rows, userId, otherId, mutate, fixtur
     ids.push(await reserveUpload(otherId, 'audio'));
     await assert.rejects(reserveUpload(randomUUID(), 'audio'), error => error.status === 429);
   } finally { for (const id of ids) await rows('DELETE FROM upload_reservations WHERE id = ?', [id]); }
+  const [source] = await rows('SELECT * FROM assets WHERE id = ?', [arrangement.segments[0].assetId]);
+  const bytes = await readFile(path.join(config.mediaDir, source.storage_key));
+  const transfer = await reserveUpload(userId, 'transfer');
+  try {
+    const blocked = await mutate('put', `/api/assets/${source.id}/audio`).set('Content-Type', 'application/octet-stream').set('X-Content-SHA256', createHash('sha256').update(bytes).digest('hex')).send(bytes);
+    assert.equal(blocked.status, 429, 'Restoration cannot bypass the account transfer concurrency gate');
+  } finally { await rows('DELETE FROM upload_reservations WHERE id = ?', [transfer]); }
+  await assert.rejects(withMediaTransferBudget(userId, async () => { throw new Error('Test interruption'); }), /Test interruption/);
+  assert.equal((await rows("SELECT COUNT(*) AS total FROM upload_reservations WHERE kind = 'transfer' AND user_id = ?", [userId]))[0].total, 0);
   const storage = config.authorStorageBytes, output = config.maxProcessedBytes;
   const before = Number((await rows('SELECT COUNT(*) AS count FROM assets WHERE user_id = ?', [userId]))[0].count);
   try {

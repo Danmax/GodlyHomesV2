@@ -15,8 +15,6 @@ export async function testAccountBrowser(page, origin) {
   await page.goto(`${origin}/account`);
   await page.getByRole('button', { name: 'Create an account' }).click();
   await page.getByLabel('Email', { exact: true }).fill('member@example.com');
-  await page.getByLabel('New password', { exact: true }).fill('A-good-password-123');
-  await page.getByLabel('Confirm password', { exact: true }).fill('A-good-password-123');
   await page.getByRole('button', { name: 'Create account', exact: true }).click();
   await page.getByRole('status').filter({ hasText: 'Check your inbox' }).waitFor();
   assert.equal(submissions[0].endpoint, 'register');
@@ -33,7 +31,7 @@ export async function testAccountBrowser(page, origin) {
     await page.getByRole('heading', { name: action === 'verify' ? 'Confirm your email.' : 'Choose a new password.' }).waitFor();
     assert.equal(new URL(page.url()).hash, '', 'Token is removed from the address bar');
     assert.equal(submissions.length, before, 'Opening an email link does not consume it');
-    if (action === 'reset') {
+    if (['reset', 'verify'].includes(action)) {
       await page.getByLabel('New password', { exact: true }).fill('Another-password-456');
       await page.getByLabel('Confirm password', { exact: true }).fill('Another-password-456');
     }

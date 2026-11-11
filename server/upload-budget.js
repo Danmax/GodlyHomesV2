@@ -17,13 +17,13 @@ export async function storageUsed(userId, connection) {
   return Number(usage.bytes);
 }
 export async function reserveUpload(userId, kind) {
-  const id = randomUUID(), bytes = kind === 'audio' ? config.maxBytes + config.maxProcessedBytes : 5 * 1024 * 1024;
+  const id = randomUUID(), bytes = kind === 'transfer' ? 0 : kind === 'audio' ? config.maxBytes + config.maxProcessedBytes : 5 * 1024 * 1024;
   await transaction(async connection => {
     await rows('SELECT id FROM upload_gate WHERE id = 1 FOR UPDATE', [], connection);
     await rows('DELETE FROM upload_reservations WHERE expires_at <= UTC_TIMESTAMP()', [], connection);
     const [active] = await rows('SELECT COUNT(*) AS total, COALESCE(SUM(user_id = ?), 0) AS own FROM upload_reservations WHERE kind = ?', [userId, kind], connection);
     if (Number(active.own) >= 1) throw fail('An upload is already being processed for your account. Wait for it to finish.');
-    if (Number(active.total) >= (kind === 'audio' ? config.maxConcurrentAudioUploads : config.maxConcurrentImageUploads)) throw fail('The upload service is busy. Please retry shortly.');
+    if (Number(active.total) >= (kind !== 'image' ? config.maxConcurrentAudioUploads : config.maxConcurrentImageUploads)) throw fail('The upload service is busy. Please retry shortly.');
     if (await storageUsed(userId, connection) + bytes > config.authorStorageBytes) throw fail('Your account storage limit has been reached. Contact the administrator.', 413);
     await rows('INSERT INTO upload_reservations (id, user_id, kind, bytes, expires_at) VALUES (?, ?, ?, ?, DATE_ADD(UTC_TIMESTAMP(), INTERVAL 20 MINUTE))', [id, userId, kind, bytes], connection);
   });
@@ -43,4 +43,12 @@ export function guardedUpload(kind, upload, handler) {
       if (reservation) await rows('DELETE FROM upload_reservations WHERE id = ?', [reservation]).catch(error => console.error('Upload reservation cleanup failed:', error.code));
     }).catch(next);
   };
+}
+
+// Restored files already count toward account storage through their immutable
+// metadata. Reserve concurrency without charging their bytes a second time.
+export async function withMediaTransferBudget(userId, task) {
+  const id = await reserveUpload(userId, 'transfer');
+  try { return await task(); }
+  finally { await rows('DELETE FROM upload_reservations WHERE id = ?', [id]); }
 }

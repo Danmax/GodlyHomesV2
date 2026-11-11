@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import request from 'supertest';
-import { digest } from '../server/auth.js';
+import { digest, verifyPassword } from '../server/auth.js';
 import { retryAccountEmail } from '../server/account.js';
 
 export async function testAccountEmail({ createApp, rows, origin }) {
@@ -12,12 +12,13 @@ export async function testAccountEmail({ createApp, rows, origin }) {
   const email = 'new-member@example.com', password = 'Initial-password-123', newPassword = 'Changed-password-456';
   const registration = { email, password, confirmPassword: password, role: 'admin' };
   const tokenFrom = message => new URLSearchParams(new URL(message.text.match(/https?:\/\/[^\s]+/)[0]).hash.slice(1)).get('token');
-  assert.equal((await post('register', { ...registration, confirmPassword: 'does-not-match' })).status, 400);
+  assert.equal((await post('register', { email: 'invalid' })).status, 400);
   assert.equal((await post('register', registration)).status, 200);
   const [user] = await rows('SELECT * FROM users WHERE email = ?', [email]);
   assert.equal(user.role, 'member');
   assert.equal(user.email_verified_at, null);
-  assert.equal((await post('login', { email, password })).status, 403);
+  assert.equal(await verifyPassword(password, user.password_hash), false, 'A password supplied before ownership verification must never become active');
+  assert.equal((await post('login', { email, password })).status, 401);
   const verify = tokenFrom(messages[0]);
   const [stored] = await rows('SELECT * FROM account_tokens WHERE user_id = ?', [user.id]);
   assert.equal(stored.token_hash, digest(verify));
@@ -25,10 +26,11 @@ export async function testAccountEmail({ createApp, rows, origin }) {
   await post('register', { ...registration, password: 'Attacker-password-123', confirmPassword: 'Attacker-password-123' });
   await post('resend-verification', { email });
   assert.equal(messages.length, 1, 'Cooldown prevents repeat mail and duplicate registration preserves credentials');
-  assert.equal((await post('verify-email', { token: verify })).status, 200);
+  assert.equal((await post('verify-email', { token: verify, password, confirmPassword: password })).status, 200);
   assert.equal(messages.length, 2);
+  assert.equal((await post('login', { email, password: 'Attacker-password-123' })).status, 401, 'Mailbox activation replaces every pre-verification credential');
   assert.match(messages[1].subject, /Welcome/);
-  assert.equal((await post('verify-email', { token: verify })).status, 400);
+  assert.equal((await post('verify-email', { token: verify, password, confirmPassword: password })).status, 400);
   const member = request.agent(app);
   const login = await member.post('/api/auth/login').set('Origin', origin).send({ email, password });
   assert.equal(login.status, 200);
@@ -38,7 +40,7 @@ export async function testAccountEmail({ createApp, rows, origin }) {
   const known = await post('forgot-password', { email });
   assert.deepEqual(unknown.body, known.body);
   const reset = tokenFrom(messages.at(-1));
-  assert.equal((await post('verify-email', { token: reset })).status, 400, 'Token purposes are distinct');
+  assert.equal((await post('verify-email', { token: reset, password, confirmPassword: password })).status, 400, 'Token purposes are distinct');
   assert.equal((await post('reset-password', { token: reset, password: newPassword, confirmPassword: newPassword })).status, 200);
   assert.equal((await member.get('/api/auth/me')).status, 401, 'Reset revokes sessions');
   assert.equal((await post('reset-password', { token: reset, password: newPassword, confirmPassword: newPassword })).status, 400);
@@ -58,14 +60,16 @@ export async function testAccountEmail({ createApp, rows, origin }) {
   fail = true;
   const outageEmail = 'outage@example.com';
   await post('register', { ...registration, email: outageEmail });
-  assert.equal((await rows('SELECT * FROM account_tokens t JOIN users u ON u.id = t.user_id WHERE u.email = ?', [outageEmail])).length, 0, 'Failed delivery rolls back tokens');
+  assert.equal((await rows('SELECT sent_at FROM account_tokens t JOIN users u ON u.id = t.user_id WHERE u.email = ?', [outageEmail]))[0].sent_at, null, 'Failed delivery preserves the durable cooldown without claiming acceptance');
+  await rows('UPDATE account_tokens t JOIN users u ON u.id = t.user_id SET t.created_at = DATE_SUB(UTC_TIMESTAMP(), INTERVAL 2 MINUTE) WHERE u.email = ?', [outageEmail]);
   fail = false;
   await post('resend-verification', { email: outageEmail });
   const outageVerify = tokenFrom(messages.at(-1));
   fail = true;
-  assert.equal((await post('verify-email', { token: outageVerify })).status, 200, 'Welcome outage does not undo verification');
+  assert.equal((await post('verify-email', { token: outageVerify, password, confirmPassword: password })).status, 200, 'Welcome outage does not undo verification');
   fail = false;
   const count = messages.length;
+  await rows('UPDATE users SET welcome_retry_at = DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 MINUTE) WHERE email = ?', [outageEmail]);
   await retryAccountEmail(mailer);
   assert.equal(messages.length, count + 1, 'Pending welcome is retried');
   await retryAccountEmail(mailer);

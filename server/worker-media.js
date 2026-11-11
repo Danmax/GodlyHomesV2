@@ -1,6 +1,7 @@
 import express from 'express';
 import { Readable } from 'node:stream';
 import { rows, json } from './db.js';
+import { withMediaTransferBudget } from './upload-budget.js';
 import { config } from './config.js';
 import { checksum, receiveMedia, requireMediaFile } from './media.js';
 
@@ -35,7 +36,7 @@ workerMedia.put('/jobs/:id/audio', leaseAccess, route(async (req, res) => {
   const bytes = Number(req.headers['content-length']);
   if (!Number.isSafeInteger(bytes) || bytes <= 0 || bytes > config.maxBytes) throw fail('The rendered audio file size is invalid.');
   const job = req.renderJob;
-  await receiveMedia(req, `exports/${job.id}-${job.lease_token}.mp3`, bytes);
+  await withMediaTransferBudget(job.user_id, () => receiveMedia(req, `exports/${job.id}-${job.lease_token}.mp3`, bytes));
   res.json({ ok: true });
 }));
 
