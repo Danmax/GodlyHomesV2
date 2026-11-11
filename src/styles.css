@@ -357,3 +357,8 @@ audio { width: 100%; margin-top: 14px; }
 .resource-link-image:hover img, .resource-link-image:focus-visible img { transform: scale(1.03); }
 
 .account-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 20px; }
+
+.user-admin-card h3 { overflow-wrap: anywhere; }
+.user-admin-actions { flex-wrap: wrap; }
+
+.user-admin-card fieldset { min-width: 0; border: 0; padding: 0; }

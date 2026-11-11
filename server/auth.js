@@ -20,13 +20,17 @@ export async function authenticate(req, res, next) {
   const token = (req.headers.cookie || '').split(';').map(x => x.trim()).find(x => x.startsWith('gh_session='))?.slice(11);
   if (!token || !/^[a-f0-9]{64}$/.test(token)) return res.status(401).json({ error: 'Sign in to continue.' });
   const [session] = await rows(`SELECT s.csrf_token, s.user_id, u.email, u.role FROM sessions s
-    JOIN users u ON u.id = s.user_id WHERE s.token_hash = ? AND s.expires_at > UTC_TIMESTAMP()`, [digest(token)]);
+    JOIN users u ON u.id = s.user_id WHERE s.token_hash = ? AND s.expires_at > UTC_TIMESTAMP() AND u.disabled_at IS NULL`, [digest(token)]);
   if (!session) return res.status(401).json({ error: 'Your session expired. Please sign in again.' });
   req.user = { id: session.user_id, email: session.email, role: session.role };
   req.csrf = session.csrf_token;
   if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && req.headers['x-csrf-token'] !== req.csrf) {
     return res.status(403).json({ error: 'Refresh the page and try again.' });
   }
+  next();
+}
+export function requireStaff(req, res, next) {
+  if (!['admin', 'junior_admin'].includes(req.user?.role)) return res.status(403).json({ error: 'Website administrator access is required.' });
   next();
 }
 export function requireAdmin(req, res, next) {

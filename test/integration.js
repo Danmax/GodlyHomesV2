@@ -41,6 +41,8 @@ try {
   const { run } = await import('../server/audio.js');
   const { testAccountEmail } = await import('./account-email-integration.js');
   await testAccountEmail({ createApp, rows, origin: 'http://localhost:5173' });
+  const { testUserManagement } = await import('./user-management-integration.js');
+  await testUserManagement({ createApp, rows, hashPassword, origin: 'http://localhost:5173' });
   const { testNewsletter } = await import('./newsletter-integration.js');
   await testNewsletter({ createApp, rows, origin: 'http://localhost:5173' });
   const app = await createApp();
@@ -379,6 +381,7 @@ try {
       await page.getByRole('button', { name: 'Delete episode Untitled episode', exact: true }).waitFor({ state: 'hidden' });
       await page.getByRole('button', { name: 'Website Admin', exact: true }).click();
       await page.getByRole('heading', { level: 1, name: 'Website Admin' }).waitFor();
+      await page.getByRole('navigation', { name: 'Website administration' }).getByRole('button', { name: 'About page', exact: true }).click();
       await page.getByLabel('About headline', { exact: true }).fill('Faith for the whole family.');
       await page.getByRole('button', { name: 'Save and publish', exact: true }).click();
       await page.getByText('Saved. Your changes are live.', { exact: true }).waitFor();
@@ -387,6 +390,7 @@ try {
       await publicPage.getByRole('heading', { level: 1, name: 'Faith for the whole family.' }).waitFor();
       await page.reload();
       await page.getByRole('button', { name: 'Website Admin', exact: true }).click();
+      await page.getByRole('navigation', { name: 'Website administration' }).getByRole('button', { name: 'About page', exact: true }).click();
       assert.equal(await page.getByLabel('About headline', { exact: true }).inputValue(), 'Faith for the whole family.');
       await page.getByLabel('About headline', { exact: true }).fill(defaultDocuments.about.title);
       await page.getByRole('button', { name: 'Save and publish', exact: true }).click();

@@ -26,7 +26,7 @@ export function accountRoutes(mailer) {
     await transaction(async connection => {
       const query = (sql, values) => rows(sql, values, connection);
       const [user] = await query('SELECT * FROM users WHERE email = ? FOR UPDATE', [email]);
-      if (!user || (purpose === 'verify' ? user.email_verified_at : (user.email_verification_required && !user.email_verified_at))) return;
+      if (!user || user.disabled_at || (purpose === 'verify' ? user.email_verified_at : (user.email_verification_required && !user.email_verified_at))) return;
       const [recent] = await query('SELECT token_hash FROM account_tokens WHERE user_id = ? AND purpose = ? AND created_at > DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 MINUTE)', [user.id, purpose]);
       if (recent) return;
       const token = randomBytes(32).toString('hex');
@@ -66,7 +66,7 @@ export function accountRoutes(mailer) {
       const query = (sql, values) => rows(sql, values, connection);
       const [user] = await query('SELECT * FROM users WHERE id = ? FOR UPDATE', [candidate.user_id]);
       const [valid] = await query('SELECT token_hash FROM account_tokens WHERE token_hash = ? AND user_id = ? AND purpose = ? AND expires_at > UTC_TIMESTAMP() FOR UPDATE', [digest(token), candidate.user_id, purpose]);
-      if (!user || !valid) throw invalid();
+      if (!user || user.disabled_at || !valid) throw invalid();
       await update(user, query);
       await query('DELETE FROM account_tokens WHERE user_id = ? AND purpose = ?', [user.id, purpose]);
       return user.id;

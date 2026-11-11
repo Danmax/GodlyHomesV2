@@ -6,12 +6,13 @@ import path from 'node:path';
 import { mkdir, unlink, stat } from 'node:fs/promises';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { z } from 'zod';
+import { memberAccess, userAdmin } from './users.js';
 import { rows, transaction, json } from './db.js';
 import { accountRoutes } from './account.js';
 import { createMailer } from './email.js';
 import { createNewsletterClient, syncNewsletterSubscriber } from './newsletter.js';
 import { config } from './config.js';
-import { authenticate, cookieOptions, digest, hashPassword, verifyPassword, requireAdmin } from './auth.js';
+import { authenticate, cookieOptions, digest, hashPassword, verifyPassword, requireAdmin, requireStaff } from './auth.js';
 import { episodeSchema, validateAssets } from './validation.js';
 import { probe, run } from './audio.js';
 import { feed } from './feed.js';
@@ -89,12 +90,12 @@ export async function createApp({ serveStatic = true, stripeClient, commerceSett
     const [user] = await rows('SELECT * FROM users WHERE email = ?', [input.email.toLowerCase().trim()]);
     // Run scrypt even for unknown emails to avoid a fast email-enumeration path.
     const valid = await verifyPassword(input.password, user?.password_hash || `${'0'.repeat(32)}:${'0'.repeat(128)}`);
-    if (!user || !valid) throw failure('Email or password is incorrect.', 401);
+    if (!user || !valid || user.disabled_at) throw failure('Email or password is incorrect.', 401);
     if (user.email_verification_required && !user.email_verified_at) throw failure('Verify your email before signing in. Use Resend verification if you need a new link.', 403);
     const token = randomBytes(32).toString('hex'), csrf = randomBytes(32).toString('hex');
     await transaction(async connection => {
-      const [current] = await rows('SELECT password_hash FROM users WHERE id = ? FOR UPDATE', [user.id], connection);
-      if (!current || current.password_hash !== user.password_hash) throw failure('Email or password is incorrect.', 401);
+      const [current] = await rows('SELECT password_hash, disabled_at, access_version FROM users WHERE id = ? FOR UPDATE', [user.id], connection);
+      if (!current || current.disabled_at || current.access_version !== user.access_version || current.password_hash !== user.password_hash) throw failure('Email or password is incorrect.', 401);
       await rows('DELETE FROM sessions WHERE user_id = ? AND expires_at <= UTC_TIMESTAMP()', [user.id], connection);
       await rows('INSERT INTO sessions (token_hash, user_id, csrf_token, expires_at) VALUES (?, ?, ?, DATE_ADD(UTC_TIMESTAMP(), INTERVAL 7 DAY))', [digest(token), user.id, csrf], connection);
     });
@@ -156,6 +157,8 @@ export async function createApp({ serveStatic = true, stripeClient, commerceSett
   app.use('/api/worker', workerMedia);
   app.use('/api/store', commerce.publicRoutes);
   app.use('/api', asyncRoute(authenticate));
+  app.use('/api/auth/access', memberAccess);
+  app.use('/api/admin/users', userAdmin);
   app.use('/api', (req, res, next) => {
     if (req.user.role === 'member' && !['/auth/me', '/auth/password', '/auth/logout'].includes(req.path)) return res.status(403).json({ error: 'Publisher access is required for the studio.' });
     next();
@@ -163,7 +166,7 @@ export async function createApp({ serveStatic = true, stripeClient, commerceSett
   app.use('/api/channel', imageRoutes, channelRoutes);
   app.use('/api/admin/commerce', commerce.adminRoutes);
   app.use('/api/admin', websiteAdmin);
-  app.get('/api/admin/episodes', requireAdmin, asyncRoute(async (_req, res) => {
+  app.get('/api/admin/episodes', requireStaff, asyncRoute(async (_req, res) => {
     const episodes = await rows(`SELECT e.id, e.title, e.version, e.admin_hidden, e.updated_at, u.email, c.slug AS channel_slug, c.data AS channel_data, c.is_public,
       p.job_id, p.title AS published_title FROM episodes e JOIN users u ON u.id = e.user_id
       LEFT JOIN podcast_channels c ON c.user_id = e.user_id
@@ -173,7 +176,7 @@ export async function createApp({ serveStatic = true, stripeClient, commerceSett
       channelTitle: e.channel_data ? json(e.channel_data).title : 'No channel', channelSlug: e.channel_slug,
       channelPublic: e.channel_slug ? Boolean(e.is_public) : true, ownerEmail: e.email, updatedAt: e.updated_at })));
   }));
-  app.put('/api/admin/episodes/:id/visibility', requireAdmin, asyncRoute(async (req, res) => {
+  app.put('/api/admin/episodes/:id/visibility', requireStaff, asyncRoute(async (req, res) => {
     const id = z.uuid().parse(req.params.id);
     const input = z.object({ hidden: z.boolean(), expectedHidden: z.boolean() }).parse(req.body);
     await transaction(async connection => {
@@ -196,8 +199,8 @@ export async function createApp({ serveStatic = true, stripeClient, commerceSett
     const token = randomBytes(32).toString('hex'), csrf = randomBytes(32).toString('hex');
     const passwordHash = await hashPassword(input.newPassword);
     await transaction(async connection => {
-      const [user] = await rows('SELECT password_hash FROM users WHERE id = ? FOR UPDATE', [req.user.id], connection);
-      if (!user || !(await verifyPassword(input.currentPassword, user.password_hash))) throw failure('Your current password is incorrect.', 401);
+      const [user] = await rows('SELECT password_hash, disabled_at FROM users WHERE id = ? FOR UPDATE', [req.user.id], connection);
+      if (!user || user.disabled_at || !(await verifyPassword(input.currentPassword, user.password_hash))) throw failure('Your current password is incorrect.', 401);
       await rows('UPDATE users SET password_hash = ? WHERE id = ?', [passwordHash, req.user.id], connection);
       await rows("DELETE FROM account_tokens WHERE user_id = ? AND purpose = 'reset'", [req.user.id], connection);
       await rows('DELETE FROM sessions WHERE user_id = ?', [req.user.id], connection);

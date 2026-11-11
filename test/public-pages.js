@@ -71,6 +71,8 @@ try {
   await page.getByRole('heading', { level: 1, name: /Faith takes root/ }).waitFor();
   const { testAccountBrowser } = await import('./account-browser.js');
   await testAccountBrowser(page, origin);
+  const { testUserManagementBrowser } = await import('./user-management-browser.js');
+  await testUserManagementBrowser(page, origin);
   assert.deepEqual(errors, []);
   console.log('PASS: Direct production routes, page titles, shared navigation, desktop/mobile layouts (1440/390/320), external Reflexion links/search and honest store availability.');
 } finally {

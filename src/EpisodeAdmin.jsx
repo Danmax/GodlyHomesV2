@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Eye, EyeOff, RefreshCw, Trash2 } from 'lucide-react';
 import { api } from './api.js';
 
-export default function EpisodeAdmin() {
+export default function EpisodeAdmin({ canDelete = true }) {
   const [episodes, setEpisodes] = useState([]), [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [message, setMessage] = useState('');
   const [search, setSearch] = useState(''), [filter, setFilter] = useState('all');
@@ -34,7 +34,7 @@ export default function EpisodeAdmin() {
     <div className="admin-field-grid"><label>Search episodes<input className="field" type="search" value={search} onChange={e => setSearch(e.target.value)} placeholder="Title, channel, or author email" /></label><label>Episode filter<select aria-label="Episode filter" className="field" value={filter} onChange={e => setFilter(e.target.value)}><option value="all">All episodes</option><option value="published">Public episodes</option><option value="hidden">Hidden by admin</option><option value="draft">Unpublished drafts</option></select></label></div>
     {loading ? <p role="status">Loading episodes…</p> : <div className="admin-entry-list">{shown.map(e => <article className="card admin-episode-card" key={e.id} aria-label={`Manage ${e.title}`}>
       <div className="row between"><div><h3>{e.title}</h3><p className="small muted">{e.channelTitle} · {e.ownerEmail}</p>{e.publishedTitle && e.publishedTitle !== e.title && <p className="small muted">Published as: {e.publishedTitle}</p>}</div><span className={`badge ${e.adminHidden || !e.published || !e.channelPublic ? 'draft' : ''}`}>{e.adminHidden ? 'Hidden by admin' : !e.published ? 'Draft' : !e.channelPublic ? 'Private channel' : 'Public'}</span></div>
-      <div className="row" style={{ marginTop: 16 }}><button className="btn" disabled={busy} onClick={() => visibility(e)}>{e.adminHidden ? <Eye size={15} /> : <EyeOff size={15} />}{e.adminHidden ? 'Restore visibility' : 'Hide episode'}</button>{e.published && !e.adminHidden && e.channelPublic && <a className="btn" href={`/podcast/${e.id}`} target="_blank" rel="noopener noreferrer">View episode</a>}<button className="btn danger" disabled={busy} onClick={() => remove(e)}><Trash2 size={15} />Delete episode</button></div>
+      <div className="row" style={{ marginTop: 16 }}><button className="btn" disabled={busy} onClick={() => visibility(e)}>{e.adminHidden ? <Eye size={15} /> : <EyeOff size={15} />}{e.adminHidden ? 'Restore visibility' : 'Hide episode'}</button>{e.published && !e.adminHidden && e.channelPublic && <a className="btn" href={`/podcast/${e.id}`} target="_blank" rel="noopener noreferrer">View episode</a>}{canDelete && <button className="btn danger" disabled={busy} onClick={() => remove(e)}><Trash2 size={15} />Delete episode</button>}</div>
     </article>)}{!shown.length && <p className="card muted">No episodes match this view.</p>}</div>}
   </>;
 }

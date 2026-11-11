@@ -5,7 +5,7 @@ import { mkdir, writeFile, unlink } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { rows, json } from './db.js';
 import { config } from './config.js';
-import { requireAdmin } from './auth.js';
+import { requireStaff } from './auth.js';
 import { documentSchemas, entrySchema, resourceSchema, versionSchema } from './website-validation.js';
 import { guardedUpload, imageUploadLimit } from './upload-budget.js';
 
@@ -28,7 +28,11 @@ export async function publicWebsite() {
 }
 
 export const websiteAdmin = express.Router();
-websiteAdmin.use(requireAdmin);
+websiteAdmin.use(requireStaff);
+websiteAdmin.use('/entries/:kind', (req, res, next) => {
+  if (req.user.role === 'junior_admin' && req.params.kind === 'product') return res.status(403).json({ error: 'Store management requires full administrator access.' });
+  next();
+});
 websiteAdmin.get('/documents', route(async (_req, res) => {
   res.json((await rows('SELECT * FROM website_documents ORDER BY document_key')).map(d => ({ key: d.document_key, data: json(d.data), version: d.version, updatedAt: d.updated_at })));
 }));

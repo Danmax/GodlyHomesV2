@@ -72,6 +72,21 @@ RESEND_NEWSLETTER_SEGMENT_ID=<optional newsletter segment UUID>
 
 The transactional sending-only key cannot manage contacts. Keep it unchanged and use the separate contact-management key above. Without a segment ID, contacts are added to the general Contacts list; with one, they also join that segment. Changing the configured segment queues existing subscribers for addition to the new segment and does not remove earlier memberships. Blank names are accepted. Existing contact names and unsubscribe status are never overwritten, and previously unsubscribed contacts stay suppressed in Resend. Resubscription/preferences and Broadcast unsubscribe processing remain managed in Resend; this is one-way signup synchronization, not a webhook mirror of remote subscription status. Repeated signups preserve the first stored consent time and do not repeat a completed sync. Use the local sync status/error fields to diagnose queued subscribers without logging addresses or provider response bodies. The site confirms only that the email was saved, never provider delivery.
 
+### Users, podcaster approvals, and junior administrators
+
+Apply migration `012_user_management.sql` before deploying this version. Sign in as a full administrator and open **Website Admin → Users & approvals**. Search verified member accounts, review pending podcaster requests, assign Member/Podcaster/Junior admin/Full admin roles, deactivate/reactivate access, sign out all devices, and inspect access history. A person first creates and verifies their own account at `/account`; administrators then assign elevated access. No passwords are shown or set through user management.
+
+Members request podcaster access from **My account → Share your voice**, explaining their podcast. A full or junior administrator can approve or decline, with an optional note shown to the applicant. Approval gives podcast creation/channel/publishing access. The person signs in again after a review or role change. Administrators can also assign Podcaster directly to a verified active member. Previously approved publishers retain their access.
+
+| Role | Access |
+| --- | --- |
+| Member | Own account and podcaster access requests |
+| Podcaster | Own podcast drafts, media, channel, and publishing |
+| Junior admin | Podcast access, podcaster request reviews, episode hide/restore moderation, page/settings and Reflexion editing |
+| Full admin | All of the above, user roles/access, other authors’ episode deletion, store items, Stripe, orders/customer data, and access history |
+
+Junior administrators cannot change user roles, deactivate accounts, revoke other users’ sessions, access store item records/customer/Stripe data, or delete other authors’ episodes. Role changes, reviews, deactivation, and explicit revocation sign out the affected account’s current sessions. Disabled accounts cannot sign in, use old sessions, or redeem reset/verification links; reactivation is required first. Deactivation leaves already-published material under the separate episode visibility controls. Self access changes are blocked; use another full administrator. Account changes serialize against each other, recheck the acting administrator’s role, reject stale versions, and retain at least one active full administrator. Access changes are recorded with actor, target, action and timestamp. No role notifications are emailed automatically.
+
 ### Website Admin
 
 **Website Admin → Podcast episodes** lists drafts and published episodes across all authors and channels. Search by title, channel, or author email, and filter public, hidden, or draft episodes. **Hide episode** removes public page/API, RSS, and audio access while retaining the draft and renders; author republishing cannot override this setting. **Restore visibility** exposes an existing publication only when its channel is public, and never publishes a draft. **Delete episode** requires confirmation and permanently removes the draft, publication, and render jobs/exports while preserving original recordings used by other episodes. External podcast apps may retain downloads or cached feed entries. Apply migration `009_episode_visibility.sql` before deploying this version.
