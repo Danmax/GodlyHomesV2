@@ -386,3 +386,24 @@ audio { width: 100%; margin-top: 14px; }
 .newsletter-member .admin-field-grid { margin: 20px 0; }
 @media (max-width: 1200px) { .newsletter-compose-grid { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 600px) { .newsletter-welcome { align-items: flex-start; flex-direction: column; } .newsletter-studio .card { padding: 20px; } .newsletter-studio .row { flex-wrap: wrap; } }
+
+/* Keep authored titles and form controls usable in narrow layouts. */
+.public-site main, .studio-main, .login-shell { overflow-wrap: anywhere; }
+.workspace > *, .stack, .fields, .field, .row > * { min-width: 0; }
+.btn { overflow-wrap: anywhere; }
+@media (max-width: 1023px) {
+  .mobile-navigation { max-height: calc(100dvh - 100px); overflow-y: auto; }
+}
+@media (max-width: 600px) {
+  .studio-header { position: static; }
+  .field, .resource-search input { font-size: 16px; }
+  .btn, .tabs button, .admin-nav button, .newsletter-theme { min-height: 44px; }
+  .btn.icon { min-width: 44px; }
+  .tabs { flex-wrap: wrap; border-radius: 20px; }
+  .tabs button { flex: 1 1 120px; }
+  .edit-grid { grid-template-columns: minmax(0, 1fr); }
+  .segment-head { flex-wrap: wrap; }
+  .segment-name { flex-basis: 100%; }
+  .segment-controls { margin-left: auto; }
+  .account-nav { flex-wrap: wrap; }
+}

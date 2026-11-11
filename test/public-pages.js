@@ -75,6 +75,8 @@ try {
   await testUserManagementBrowser(page, origin);
   const { testNewsletterStudioBrowser } = await import('./newsletter-studio-browser.js');
   await testNewsletterStudioBrowser(page, origin);
+  const { testMobilePages } = await import('./mobile-pages.js');
+  await testMobilePages(browser, origin);
   assert.deepEqual(errors, []);
   console.log('PASS: Direct production routes, page titles, shared navigation, desktop/mobile layouts (1440/390/320), external Reflexion links/search and honest store availability.');
 } finally {
