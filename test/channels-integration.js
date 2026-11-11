@@ -44,7 +44,7 @@ export async function testChannels({ createApp, rows, origin, fixture, claimJob,
     const saved = await author.mutate('put', `/api/episodes/${draft.id}`).send(draft);
     assert.equal(saved.status, 200);
     const rendering = await author.mutate('post', `/api/episodes/${draft.id}/render`);
-    assert.equal(rendering.status, 202);
+    assert.equal(rendering.status, 202, JSON.stringify(rendering.body));
     const job = await claimJob(); assert.equal(job.id, rendering.body.id); await processJob(job);
     const publish = () => author.mutate('post', `/api/episodes/${draft.id}/publish`).send({ jobId: job.id });
     if (author === alice) {

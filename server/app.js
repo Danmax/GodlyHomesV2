@@ -7,6 +7,8 @@ import { mkdir, unlink, stat } from 'node:fs/promises';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { rows, transaction, json } from './db.js';
+import { accountRoutes } from './account.js';
+import { createMailer } from './email.js';
 import { config } from './config.js';
 import { authenticate, cookieOptions, digest, hashPassword, verifyPassword, requireAdmin } from './auth.js';
 import { episodeSchema, validateAssets } from './validation.js';
@@ -55,7 +57,7 @@ async function deleteEpisode(id, { ownerId, version } = {}) {
   }
 }
 
-export async function createApp({ serveStatic = true, stripeClient, commerceSettings } = {}) {
+export async function createApp({ serveStatic = true, stripeClient, commerceSettings, mailer = createMailer() } = {}) {
   await mkdir(path.join(config.mediaDir, 'uploads'), { recursive: true });
   await mkdir(path.join(config.mediaDir, 'exports'), { recursive: true });
   const app = express();
@@ -80,12 +82,14 @@ export async function createApp({ serveStatic = true, stripeClient, commerceSett
   app.get('/api/health', asyncRoute(async (_req, res) => {
     await rows('SELECT 1'); res.json({ ok: true });
   }));
+  app.use('/api/auth', accountRoutes(mailer));
   app.post('/api/auth/login', rateLimit({ windowMs: 15 * 60000, limit: 15, standardHeaders: 'draft-8', legacyHeaders: false }), asyncRoute(async (req, res) => {
     const input = z.object({ email: z.email().max(254), password: z.string().min(1).max(200) }).parse(req.body);
     const [user] = await rows('SELECT * FROM users WHERE email = ?', [input.email.toLowerCase().trim()]);
     // Run scrypt even for unknown emails to avoid a fast email-enumeration path.
     const valid = await verifyPassword(input.password, user?.password_hash || `${'0'.repeat(32)}:${'0'.repeat(128)}`);
     if (!user || !valid) throw failure('Email or password is incorrect.', 401);
+    if (user.email_verification_required && !user.email_verified_at) throw failure('Verify your email before signing in. Use Resend verification if you need a new link.', 403);
     const token = randomBytes(32).toString('hex'), csrf = randomBytes(32).toString('hex');
     await transaction(async connection => {
       const [current] = await rows('SELECT password_hash FROM users WHERE id = ? FOR UPDATE', [user.id], connection);
@@ -146,6 +150,10 @@ export async function createApp({ serveStatic = true, stripeClient, commerceSett
   app.use('/api/worker', workerMedia);
   app.use('/api/store', commerce.publicRoutes);
   app.use('/api', asyncRoute(authenticate));
+  app.use('/api', (req, res, next) => {
+    if (req.user.role === 'member' && !['/auth/me', '/auth/password', '/auth/logout'].includes(req.path)) return res.status(403).json({ error: 'Publisher access is required for the studio.' });
+    next();
+  });
   app.use('/api/channel', imageRoutes, channelRoutes);
   app.use('/api/admin/commerce', commerce.adminRoutes);
   app.use('/api/admin', websiteAdmin);
@@ -185,6 +193,7 @@ export async function createApp({ serveStatic = true, stripeClient, commerceSett
       const [user] = await rows('SELECT password_hash FROM users WHERE id = ? FOR UPDATE', [req.user.id], connection);
       if (!user || !(await verifyPassword(input.currentPassword, user.password_hash))) throw failure('Your current password is incorrect.', 401);
       await rows('UPDATE users SET password_hash = ? WHERE id = ?', [passwordHash, req.user.id], connection);
+      await rows("DELETE FROM account_tokens WHERE user_id = ? AND purpose = 'reset'", [req.user.id], connection);
       await rows('DELETE FROM sessions WHERE user_id = ?', [req.user.id], connection);
       await rows('INSERT INTO sessions (token_hash, user_id, csrf_token, expires_at) VALUES (?, ?, ?, DATE_ADD(UTC_TIMESTAMP(), INTERVAL 7 DAY))', [digest(token), req.user.id, csrf], connection);
     });
@@ -345,7 +354,7 @@ export async function createApp({ serveStatic = true, stripeClient, commerceSett
   app.use('/api', (_req, res) => res.status(404).json({ error: 'Endpoint not found.' }));
   if (serveStatic) {
     app.use(express.static(path.resolve('dist')));
-    app.get(['/', '/about', '/resources', '/resources/:slug', '/store', '/store/:slug', '/checkout', '/admin', '/studio', '/podcast/:id', '/channels', '/channels/:slug', '/channels/:slug/series/:seriesSlug', '/authors/:slug'], (_req, res) => res.sendFile(path.resolve('dist/index.html')));
+    app.get(['/', '/about', '/resources', '/resources/:slug', '/store', '/store/:slug', '/checkout', '/admin', '/studio', '/account', '/podcast/:id', '/channels', '/channels/:slug', '/channels/:slug/series/:seriesSlug', '/authors/:slug'], (_req, res) => res.sendFile(path.resolve('dist/index.html')));
   }
   app.use((error, _req, res, next) => {
     if (res.headersSent) return next(error);

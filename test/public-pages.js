@@ -56,7 +56,7 @@ try {
   await page.getByLabel('Search reflexions').fill('quiet');
   assert.equal(await page.locator('.resource-card').count(), 1);
   await page.getByLabel('Search reflexions').fill('no-such-resource');
-  await page.getByRole('heading', { name: 'No resources found.' }).waitFor();
+  await page.getByRole('heading', { name: 'No reflexions found.' }).waitFor();
   await page.getByRole('button', { name: 'Show all reflexions' }).click();
   assert.equal(await page.locator('.resource-card').count(), 2);
   const external = page.getByRole('link', { name: 'Open A family rhythm in a new tab' });
@@ -65,9 +65,12 @@ try {
   await page.goto(`${origin}/store`);
   await page.getByText('No products are available for purchase yet.').waitFor();
   assert.equal(await page.getByRole('button', { name: /buy|checkout|add to cart/i }).count(), 0);
+  await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(origin);
   await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: 'About', exact: true }).click();
   await page.getByRole('heading', { level: 1, name: /Faith takes root/ }).waitFor();
+  const { testAccountBrowser } = await import('./account-browser.js');
+  await testAccountBrowser(page, origin);
   assert.deepEqual(errors, []);
   console.log('PASS: Direct production routes, page titles, shared navigation, desktop/mobile layouts (1440/390/320), external Reflexion links/search and honest store availability.');
 } finally {

@@ -2,6 +2,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import Homepage from './Homepage.jsx';
 import Studio from './Studio.jsx';
+import AccountAccess from './AccountAccess.jsx';
 import { PublicEpisode } from './PublicPodcast.jsx';
 import { AboutPage, ResourcesPage, ResourcePage, StorePage, ProductPage, NotFoundPage } from './ContentPages.jsx';
 import { SiteContentProvider } from './SiteContent.jsx';
@@ -23,6 +24,7 @@ const page = path === '/' ? <Homepage />
   : path === '/channels' ? <ChannelDirectory />
   : channelMatch ? <PublicChannel slug={channelMatch[1]} seriesSlug={channelMatch[2]} />
   : authorMatch ? <PublicChannel slug={authorMatch[1]} authorOnly />
+  : path === '/account' ? <AccountAccess />
   : path === '/checkout' ? <CheckoutPage />
   : path === '/about' ? <AboutPage />
     : path === '/resources' ? <ResourcesPage />

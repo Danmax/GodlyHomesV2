@@ -7,21 +7,13 @@ import Logo from './Logo.jsx';
 import AdminPanel from './AdminPanel.jsx';
 import ClipEditor from './ClipEditor.jsx';
 import ClipLibrary from './ClipLibrary.jsx';
+import Login from './AccountAccess.jsx';
 import ChannelManager from './ChannelManager.jsx';
 
 export function Brand() { return <div className="studio-brand"><Logo /><span className="badge">Studio</span></div>; }
 const length = ep => ep.arrangement.segments.reduce((n, s) => n + s.end - s.start, 0);
 const clone = value => structuredClone(value);
 
-function Login({ onLogin }) {
-  const [email, setEmail] = useState(''), [password, setPassword] = useState(''), [error, setError] = useState(''), [busy, setBusy] = useState(false);
-  const submit = async e => {
-    e.preventDefault(); setError(''); setBusy(true);
-    try { onLogin(await api('/api/auth/login', { method: 'POST', body: { email, password } })); }
-    catch (error) { setError(error.message); } finally { setBusy(false); }
-  };
-  return <div className="login-shell"><Brand /><form className="card" onSubmit={submit}><p className="eyebrow">A space for your voice</p><h1>Welcome to the studio.</h1><p className="muted small">Manage your podcast and website with one team login.</p><div className="fields"><label>Email<input className="field" type="email" autoComplete="username" required value={email} onChange={e => setEmail(e.target.value)} /></label><label>Password<input className="field" type="password" autoComplete="current-password" required value={password} onChange={e => setPassword(e.target.value)} /></label></div>{error && <p className="message error" role="alert">{error}</p>}<button className="btn primary" disabled={busy}>{busy ? 'Signing in…' : 'Sign in to your studio'}</button><p className="muted small" style={{ marginTop: 20 }}>Private access for the Godly Homes team. Website editors can open Website Admin after signing in.</p></form><a className="btn ghost" href="/"><ArrowLeft size={15} />Back to Godly Homes</a></div>;
-}
 
 function ChangePassword({ onClose }) {
   const [currentPassword, setCurrentPassword] = useState(''), [newPassword, setNewPassword] = useState(''), [confirmPassword, setConfirmPassword] = useState('');
@@ -45,6 +37,7 @@ export default function Studio() {
   const setRecordingStable = useCallback(value => setRecording(value), []);
   const refreshRecovery = useCallback(async () => { if (auth?.user) { try { setRecovery(await recoveries(auth.user.id)); } catch { setError('This browser cannot open recording recovery storage. Imported audio remains available.'); } } }, [auth]);
   const load = async () => {
+    if (auth?.user.role === 'member') return;
     const [eps, sources] = await Promise.all([api('/api/episodes'), api('/api/assets')]);
     setEpisodes(eps); setAssets(sources);
   };
@@ -136,7 +129,8 @@ export default function Studio() {
     await addAsset(asset); await removeRecovery(session.id); await refreshRecovery();
   });
   if (auth === undefined) return <main className="studio"><div className="studio-main"><p role="status">Opening your studio…</p></div></main>;
-  if (!auth) return <main className="studio">{error && <p className="message error" role="alert">{error}</p>}<Login onLogin={setAuth} /></main>;
+  if (!auth) return <div className="studio">{error && <p className="message error" role="alert">{error}</p>}<Login onLogin={setAuth} /></div>;
+  if (auth.user.role === 'member') return <div className="login-shell"><Brand /><section className="card"><h1>Your account</h1><p className="muted">Signed in as {auth.user.email}</p><p>Welcome to the Godly Homes community.</p><div className="account-actions"><a className="btn primary" href="/">Explore Godly Homes</a><button className="btn" onClick={() => setPasswordOpen(open => !open)}>Change password</button><button className="btn ghost" onClick={() => action(async () => { await api('/api/auth/logout', { method: 'POST' }); setAuth(null); })}>Sign out</button></div>{error && <p className="message error" role="alert">{error}</p>}</section>{passwordOpen && <ChangePassword onClose={() => setPasswordOpen(false)} />}</div>;
   return <div className="studio"><header className="studio-header"><div className="studio-header-inner"><Brand />{auth.user.role === 'admin' && <nav className="account-nav" aria-label="Account area"><button className={`btn ${area === 'podcasts' ? 'primary' : ''}`} aria-current={area === 'podcasts' ? 'page' : undefined} disabled={busy || recording} onClick={() => changeArea('podcasts')}>Podcasts</button><button className={`btn ${area === 'website' ? 'primary' : ''}`} aria-current={area === 'website' ? 'page' : undefined} disabled={busy || recording} onClick={() => changeArea('website')}>Website Admin</button></nav>}{auth.user.role !== 'admin' && <button className={`btn ${area === 'podcasts' ? 'primary' : ''}`} disabled={busy || recording} onClick={() => changeArea('podcasts')}>Podcasts</button>}<button className={`btn ${area === 'channel' ? 'primary' : ''}`} aria-current={area === 'channel' ? 'page' : undefined} disabled={busy || recording} onClick={() => changeArea('channel')}>My channel</button><div className="header-spacer" /><span className="user-email small muted">{auth.user.email}</span><button className="btn ghost" type="button" disabled={busy || recording} onClick={() => setPasswordOpen(open => !open)}>Password</button><button className="btn icon" aria-label="Sign out" disabled={busy || recording || dirty} onClick={() => { if (adminDirty.current && !confirm('Discard the website changes you haven’t saved and sign out?')) return; action(async () => { await api('/api/auth/logout', { method: 'POST' }); setAuth(null); current.current = null; setDraft(null); setEpisodes([]); setAssets([]); adminDirty.current = false; }) }}><LogOut size={17} /></button></div></header><main className="studio-main">
     {error && <div className="message error" role="alert">{error}<button onClick={() => setError('')}>Dismiss</button></div>}
     {passwordOpen && <ChangePassword onClose={() => setPasswordOpen(false)} />}

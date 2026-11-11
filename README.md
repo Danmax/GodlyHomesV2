@@ -25,12 +25,36 @@ Requires Node 22.14+, MySQL 8.0+ (tested locally with MySQL 9.6), FFmpeg and ffp
 1. `npm ci`
 2. Copy `.env.example` to `.env`, create a dedicated local MySQL database and user, and fill in its credentials. The migration runner does not create databases or database users.
 3. `npm run db:migrate`
-4. Set `ADMIN_EMAIL` and a unique `ADMIN_PASSWORD` of at least 12 characters in `.env`, then run `npm run admin:create`. Remove `ADMIN_PASSWORD` afterward. No default credentials or public registration exist.
+4. Set `ADMIN_EMAIL` and a unique `ADMIN_PASSWORD` of at least 12 characters in `.env`, then run `npm run admin:create`. Remove `ADMIN_PASSWORD` afterward. No default credentials exist. Public member registration requires the account email setup below.
 5. `npm run dev` starts the API on port 3001, the frontend on port 5173, and the audio worker together. Open **http://localhost:5173** so the browser origin matches `APP_URL`.
 
 Local development automatically uses the installed `ffmpeg-static` and `ffprobe-static` binaries. Explicit `FFMPEG_PATH` and `FFPROBE_PATH` executable paths override them. The production image uses OS-installed tools.
 
 For a local production build, `npm run build`, set `APP_URL` to your served origin, then `npm start` and `npm run worker`. Microphone capture needs localhost or HTTPS.
+
+### Account registration and email (Google Workspace)
+
+Apply migration `010_account_email.sql` with `npm run db:migrate` before deploying this version. It preserves existing users and treats their email addresses as verified. Public signups create **member** accounts with no podcast, media, channel, or Website Admin access; publisher/admin CLI workflows remain available.
+
+The sign-in form at `/studio` or `/account` includes registration, forgot password, and resend verification. New users must verify their email before signing in. Verification links expire after 24 hours; password reset links after 30 minutes. Links are single-use, store only their SHA-256 hashes, and carry the raw token in the browser URL fragment, which is removed when the page opens. Visiting a link alone does not consume it: the user confirms with a button. A reset revokes all sessions and outstanding reset links; a signed-in password change also revokes reset links. Welcome messages send after verification; the running API retries pending welcome messages every minute. SMTP may deliver a duplicate welcome if the connection or process fails after acceptance but before the database records success.
+
+The domain uses Google Workspace. Set these **server-only** environment variables, locally in ignored `.env` and separately in the hosting environment:
+
+```dotenv
+APP_URL=https://godlyhomes.com
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=465
+SMTP_USER=hello@godlyhomes.com
+SMTP_PASSWORD=<Google app password>
+MAIL_FROM=hello@godlyhomes.com
+REGISTRATION_ENABLED=true
+```
+
+`SMTP_USER` must be an actual Workspace account; if `hello@` is an alias, authenticate with its owning mailbox and ensure Google permits sending as that alias. Create an app password under that account with 2-Step Verification enabled; Google Workspace administrator policy may restrict app passwords. See [Google’s app password instructions](https://support.google.com/accounts/answer/185833) and [Workspace SMTP setup](https://knowledge.workspace.google.com/admin/gmail/send-email-from-a-printer-scanner-or-app). Never use the normal Google password or place SMTP secrets in `VITE_` variables. Keep the local `APP_URL=http://localhost:5173` during development; hosted email links must use the live HTTPS origin.
+
+Run `npm run email:check` in the configured runtime to verify the SMTP connection and credentials without sending mail. Redeploy/restart the API after configuring it. Missing SMTP settings disable email flows while preserving existing sign-in. Set `REGISTRATION_ENABLED=false` to close new signups while retaining reset/verification for existing accounts. Request endpoints return the same message for unknown and existing accounts and enforce IP limits plus a database-backed one-minute cooldown per recipient/purpose. Delivery failures return that generic response and are logged without addresses, credentials, or tokens; users can retry. Link requests do not claim confirmed delivery. There is no automatic retry for verification/reset messages; the user requests a new link. These emails are separate from newsletter marketing, which remains signup storage only.
+
+Validate on the hosted app with a real new address: register, confirm the verification and welcome messages, verify sign-in and member access, request a reset, and confirm the new password works and old sessions are revoked. Automated integration tests use a fake mail transport and never send real mail. Domain DNS alone does not authorize the app to send.
 
 ### Website Admin
 
@@ -150,7 +174,7 @@ The Dockerfile runs as an unprivileged user; Caddy is the sole exposed app entry
 - Source playback honors trim points. Fades, gain and music are heard in the completed server render. Whole-episode browser mixing is avoided.
 - The worker performs stereo -16 LUFS / -1 dBTP normalization. Lossy encoding may slightly change measured peaks; verify long representative exports and listening quality before a public launch. MP3 only in this MVP; WAV masters are not exposed.
 - Media remains on the VPS, with no automatic retention cleanup or quotas per user. Monitor volume free space, worker failures and queue age. Orphaned source assets/old exports are retained to avoid accidental loss; add reviewed retention rules as usage grows.
-- No remote guests, video, transcription, scheduled publishing, automatic product fulfillment, password-reset email or bulk email delivery. Account creation and role grants are administrator CLI operations; a password-reset/revocation workflow should precede wider team access.
-- Studio accounts own private drafts and sources. Any studio account can publish its own episodes into the shared Godly Homes feed; only create accounts for trusted publishers.
+- No remote guests, video, transcription, scheduled publishing, automatic product fulfillment or bulk email delivery. Publisher/admin account creation and role grants remain administrator CLI operations.
+- Publisher accounts own private drafts and sources. Any publisher account can publish its own episodes into the shared Godly Homes feed; only create accounts for trusted publishers.
 
 See `DEPLOYMENT_PLAN.md` for the broader architecture and later phases. No Hostinger purchase, DNS change or deployment is performed by local setup commands.

@@ -17,7 +17,8 @@
     "media:sync": "node --env-file-if-exists=.env server/sync-media.js",
     "test": "node --test test/*.test.js",
     "test:integration": "node test/integration.js",
-    "test:pages": "node test/public-pages.js"
+    "test:pages": "node test/public-pages.js",
+    "email:check": "node --env-file-if-exists=.env server/check-email.js"
   },
   "dependencies": {
     "express": "5.1.0",
@@ -27,6 +28,7 @@
     "lucide-react": "0.468.0",
     "multer": "2.5.0",
     "mysql2": "3.24.6",
+    "nodemailer": "10.5.0",
     "react": "19.2.0",
     "react-dom": "19.2.0",
     "stripe": "23.1.0",
