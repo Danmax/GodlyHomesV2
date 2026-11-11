@@ -301,7 +301,10 @@ audio { width: 100%; margin-top: 14px; }
 .account-nav .btn { white-space: nowrap; }
 .admin-heading { margin-bottom: 30px; }
 .admin-layout { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 26px; align-items: start; }
-.admin-nav { display: grid; gap: 7px; position: sticky; top: 130px; }
+.admin-nav { display: grid; gap: 24px; position: sticky; top: 130px; max-height: calc(100dvh - 150px); overflow-y: auto; padding-right: 4px; padding-bottom: 4px; }
+.admin-nav .admin-nav-heading { margin: 0 0 8px; padding-inline: 16px; font: 700 11px 'Plus Jakarta Sans', system-ui, sans-serif; letter-spacing: .14em; text-transform: uppercase; color: #76866b; }
+.admin-nav-links { display: grid; gap: 4px; }
+.admin-nav button svg { flex-shrink: 0; }
 .admin-nav button { display: flex; align-items: center; gap: 12px; border: 0; border-radius: 12px; padding: 13px 16px; background: transparent; color: #756c62; text-align: left; font-size: 13px; }
 .admin-nav button[aria-current=page] { background: #dfe5d6; color: #45543b; font-weight: 700; }
 .admin-nav button:hover { background: #eae5db; }
@@ -339,7 +342,7 @@ audio { width: 100%; margin-top: 14px; }
 .product-detail-art { min-height: 380px; border-radius: 24px; }
 .product-detail-art img { height: 340px; }
 @media(max-width: 1000px) { .studio-header-inner { flex-wrap: wrap; } .account-nav { order: 3; flex-basis: 100%; justify-content: center; } }
-@media(max-width: 800px) { .admin-layout { grid-template-columns: 1fr; gap: 22px; } .admin-nav { display: flex; gap: 6px; flex-wrap: wrap; position: static; } .admin-nav button { padding: 10px 12px; font-size: 12px; } .admin-field-grid { grid-template-columns: 1fr; } }
+@media(max-width: 800px) { .admin-layout { grid-template-columns: 1fr; gap: 22px; } .admin-nav { gap: 18px; position: static; max-height: none; overflow: visible; padding: 0; } .admin-nav-links { display: flex; gap: 6px; flex-wrap: wrap; } .admin-nav .admin-nav-heading { padding-inline: 12px; } .admin-nav button { padding: 10px 12px; font-size: 12px; } .admin-field-grid { grid-template-columns: 1fr; } }
 @media(max-width: 600px) { .admin-form { padding: 20px; } .admin-repeat-item { padding-left: 14px; } .admin-entry-card { flex-wrap: wrap; gap: 12px; } .product-detail-art { min-height: 280px; } .product-detail-art img { height: 240px; } }
 /* Store administration and order confirmation */
 .commerce-code { display: block; overflow-wrap: anywhere; white-space: normal; }

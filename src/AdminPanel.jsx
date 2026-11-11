@@ -25,6 +25,12 @@ const sections = [
   { id: 'store', label: 'Store page', icon: FileText, document: 'store', href: '/store' },
   { id: 'newsletter', label: 'Email signup', icon: Mail, document: 'newsletter', href: '/#join' },
 ];
+const menuGroups = [
+  { label: 'Website', sections: ['home', 'about', 'resources', 'library', 'newsletter', 'newsletters'] },
+  { label: 'Podcast', sections: ['episodes', 'podcast'] },
+  { label: 'Store', sections: ['store', 'products', 'stripe', 'discounts', 'orders'] },
+  { label: 'Admin', sections: ['users', 'site'] },
+];
 const slugify = value => value.toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 160);
 const emptyEntry = kind => ({ slug: '', status: 'draft', sortOrder: 0, version: 1, data: kind === 'resource'
   ? { title: '', description: '', type: 'Article', imageUrl: '', imageAlt: '', externalUrl: '' }
@@ -48,7 +54,10 @@ export default function AdminPanel({ onDirtyChange, currentUser }) {
   return <>
     <div className="row between admin-heading"><div><p className="eyebrow">Your website, in your hands</p><h1>Website Admin</h1><p className="muted">Manage users, podcaster approvals, and website content.</p></div><a className="btn" href={section.href} target="_blank" rel="noopener noreferrer">View website <ArrowUpRight size={15} /></a></div>
     {error && <p className="message error" role="alert">{error}</p>}
-    <div className="admin-layout"><nav className="admin-nav" aria-label="Website administration">{availableSections.map(item => <button key={item.id} aria-current={active === item.id ? 'page' : undefined} onClick={() => select(item.id)}><item.icon size={17} />{item.label}</button>)}</nav><section className="admin-content">
+    <div className="admin-layout"><nav className="admin-nav" aria-label="Website administration">{menuGroups.map(group => {
+      const items = group.sections.map(id => availableSections.find(item => item.id === id)).filter(Boolean);
+      return items.length > 0 && <div key={group.label} className="admin-nav-group" role="group" aria-label={group.label}><h2 className="admin-nav-heading">{group.label}</h2><div className="admin-nav-links">{items.map(item => <button key={item.id} aria-current={active === item.id ? 'page' : undefined} onClick={() => select(item.id)}><item.icon size={17} />{item.label}</button>)}</div></div>;
+    })}</nav><section className="admin-content">
       {section.id === 'newsletters' ? <NewsletterStudio currentUser={currentUser} onDirtyChange={setDirty} /> : section.id === 'users' ? <UserAdmin currentUser={currentUser} /> : section.id === 'episodes' ? <EpisodeAdmin canDelete={currentUser.role === 'admin'} /> : ['stripe', 'orders', 'discounts'].includes(section.id) ? <CommerceAdmin key={section.id} ordersOnly={section.id === 'orders'} discountsOnly={section.id === 'discounts'} /> : section.kind ? <EntriesManager key={section.id} kind={section.kind} onDirty={setDirty} /> : documents ? <DocumentEditor key={section.id} document={documents.find(d => d.key === section.document)} title={section.label} onDirty={setDirty} onSaved={result => setDocuments(list => list.map(item => item.key === result.key ? { ...item, ...result } : item))} /> : <p role="status">Loading page settings…</p>}
     </section></div>
   </>;
