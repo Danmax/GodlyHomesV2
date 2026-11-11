@@ -1,0 +1,56 @@
+import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
+import path from 'node:path';
+import { stat } from 'node:fs/promises';
+import request from 'supertest';
+import { run, canonicalInputOptions, buildMix, probe } from '../server/audio.js';
+import { autoMix } from '../shared/podcast-editing.js';
+import { config } from '../server/config.js';
+
+export async function testStudioTools({ createApp, rows, hashPassword, origin }) {
+  const user = randomUUID(), other = randomUUID(), member = randomUUID(), password = 'studio-tools-password-123';
+  await rows('INSERT INTO users (id, email, password_hash, role) VALUES (?, ?, ?, ?), (?, ?, ?, ?), (?, ?, ?, ?)', [user, `${user}@example.com`, await hashPassword(password), 'publisher', other, `${other}@example.com`, await hashPassword(password), 'publisher', member, `${member}@example.com`, await hashPassword(password), 'member']);
+  const generated = [];
+  const app = await createApp({ studioAI: async input => {
+    generated.push(input);
+    return input.audio ? Buffer.alloc(24000 * 2) : 'Welcome to our family podcast. Today we reflect on life at home.';
+  } });
+  const owner = request.agent(app), stranger = request.agent(app), basic = request.agent(app);
+  const login = await owner.post('/api/auth/login').set('Origin', origin).send({ email: `${user}@example.com`, password });
+  const otherLogin = await stranger.post('/api/auth/login').set('Origin', origin).send({ email: `${other}@example.com`, password });
+  await basic.post('/api/auth/login').set('Origin', origin).send({ email: `${member}@example.com`, password });
+  assert.equal(login.status, 200);
+  const post = endpoint => owner.post(`/api/studio-tools${endpoint}`).set('Origin', origin).set('X-CSRF-Token', login.body.csrf);
+  const id = randomUUID(), key = `uploads/${id}.flac`, file = path.join(config.mediaDir, key);
+  await run(config.ffmpeg, ['-hide_banner', '-y', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=2', '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo:d=1', '-filter_complex', '[0:a][1:a][0:a]concat=n=3:v=0:a=1[a]', '-map', '[a]', '-c:a', 'flac', file]);
+  const bytes = (await stat(file)).size;
+  await rows('INSERT INTO assets (id, user_id, filename, storage_key, mime, bytes, duration) VALUES (?, ?, ?, ?, ?, ?, ?)', [id, user, 'Original recording', key, 'audio/flac', bytes, 5]);
+  const body = { start: 0, end: 5, minPause: .8 };
+  assert.equal((await request(app).post(`/api/studio-tools/assets/${id}/analyze`).set('Origin', origin).send(body)).status, 401);
+  assert.equal((await basic.get('/api/studio-tools/options')).status, 403);
+  assert.equal((await owner.patch(`/api/studio-tools/assets/${id}`).set('Origin', origin).send({ name: 'New name' })).status, 403);
+  assert.equal((await stranger.post(`/api/studio-tools/assets/${id}/analyze`).set('Origin', origin).set('X-CSRF-Token', otherLogin.body.csrf).send(body)).status, 404);
+  const renamed = await owner.patch(`/api/studio-tools/assets/${id}`).set('Origin', origin).set('X-CSRF-Token', login.body.csrf).send({ name: 'Sunday conversation' });
+  assert.equal(renamed.status, 200); assert.equal(renamed.body.name, 'Sunday conversation');
+  const analysis = await post(`/assets/${id}/analyze`).send(body);
+  assert.equal(analysis.status, 200, JSON.stringify(analysis.body));
+  assert.equal(analysis.body.silences.length, 1);
+  assert.ok(Math.abs(analysis.body.silences[0].start - 2) < .1 && Math.abs(analysis.body.silences[0].end - 3) < .1);
+  const offset = await post(`/assets/${id}/analyze`).send({ start: 1, end: 4, minPause: .8 });
+  assert.ok(Math.abs(offset.body.silences[0].start - 2) < .1, 'Analysis returns original-source timestamps after seeking');
+  assert.equal((await post(`/assets/${id}/analyze`).send({ ...body, end: 99 })).status, 400);
+  assert.equal((await post('/intro/script').send({ show: 'Our Show', host: 'Sam', topic: 'family rhythms', tone: 'warm' })).status, 200);
+  const voice = await post('/intro/voice').send({ script: 'Welcome to our show.', voice: 'marin' });
+  assert.equal(voice.status, 201, JSON.stringify(voice.body));
+  assert.match(generated.at(-1).text, /^This introduction uses an AI-generated voice/);
+  assert.ok(generated.every(input => /^[a-f0-9]{64}$/.test(input.userId)), 'Provider receives hashed user identifiers');
+  assert.equal((await owner.get(voice.body.url)).status, 200);
+  assert.equal((await stranger.get(voice.body.url)).status, 404);
+  assert.equal((await post('/intro/voice').send({ script: 'Hello', voice: 'fake-voice' })).status, 400);
+  assert.equal((await rows('SELECT id FROM upload_reservations WHERE user_id = ?', [user])).length, 0);
+  const output = path.join(config.mediaDir, `studio-mix-${id}.mp3`);
+  const arrangement = autoMix({ segments: [{ id: randomUUID(), assetId: id, name: 'Voice', role: 'segment', start: 0, end: 5, gain: .2, fadeIn: 0, fadeOut: 0 }], music: { assetId: null, volume: .2, duck: false } });
+  await run(config.ffmpeg, ['-y', ...canonicalInputOptions, '-i', file, '-filter_complex', buildMix(arrangement, new Map([[id, 0]])).join(';'), '-map', '[mixed]', '-c:a', 'libmp3lame', output]);
+  assert.ok(Math.abs(await probe(output) - 5) < .15);
+  console.log('PASS: Studio resource renaming, ownership/CSRF, real pause analysis with source offsets, generated intro storage and privacy, reservation cleanup and auto-level rendering.');
+}

@@ -391,6 +391,10 @@ audio { width: 100%; margin-top: 14px; }
 .public-site main, .studio-main, .login-shell { overflow-wrap: anywhere; }
 .workspace > *, .stack, .fields, .field, .row > * { min-width: 0; }
 .btn { overflow-wrap: anywhere; }
+.intro-generator summary, .clip-editor summary { cursor: pointer; font-weight: 600; color: #55644c; padding-block: 12px; }
+.intro-generator fieldset { min-width: 0; border: 0; padding: 0; margin-top: 18px; }
+.suggested-clips { padding-left: 24px; max-height: 180px; overflow-y: auto; font-size: 13px; line-height: 1.8; }
+.wave-seek { display: block; width: 100%; margin: -8px 0 10px; }
 @media (max-width: 1023px) {
   .mobile-navigation { max-height: calc(100dvh - 100px); overflow-y: auto; }
 }

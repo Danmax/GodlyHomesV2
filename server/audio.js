@@ -33,7 +33,8 @@ export function buildMix(arrangement, inputIndexes) {
   const filters = arrangement.segments.map((s, i) => {
     const duration = s.end - s.start;
     const fi = Math.min(s.fadeIn, duration / 2), fo = Math.min(s.fadeOut, duration / 2);
-    return `[${inputIndexes.get(s.assetId)}:a]atrim=start=${s.start}:end=${s.end},asetpts=PTS-STARTPTS,aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo,volume=${s.gain},afade=t=in:d=${fi},afade=t=out:st=${duration - fo}:d=${fo}[s${i}]`;
+    const level = arrangement.autoLevel && s.role !== 'transition' ? 'loudnorm=I=-18:TP=-2:LRA=9,aresample=44100,' : '';
+    return `[${inputIndexes.get(s.assetId)}:a]atrim=start=${s.start}:end=${s.end},asetpts=PTS-STARTPTS,aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo,${level}volume=${s.gain},afade=t=in:d=${fi},afade=t=out:st=${duration - fo}:d=${fo}[s${i}]`;
   });
   filters.push(`${arrangement.segments.map((_, i) => `[s${i}]`).join('')}concat=n=${arrangement.segments.length}:v=0:a=1[voice]`);
   if (arrangement.music.assetId) {

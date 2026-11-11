@@ -8,6 +8,8 @@ const segment = z.object({
   role: z.enum(clipRoles).optional().default('segment'),
 }).refine(s => s.end - s.start >= 0.05, 'Each segment must be at least 0.05 seconds.');
 export const arrangementSchema = z.object({
+  autoLevel: z.boolean().optional().default(false),
+  introDraft: z.object({ show: z.string().max(200), host: z.string().max(200), topic: z.string().max(500), tone: z.enum(['warm', 'upbeat', 'reflective']), script: z.string().max(1200), voice: z.enum(['marin', 'cedar', 'coral', 'sage']) }).optional(),
   segments: z.array(segment).max(200),
   music: z.object({ assetId: z.uuid().nullable(), volume: z.number().min(0).max(1), duck: z.boolean() }),
 });

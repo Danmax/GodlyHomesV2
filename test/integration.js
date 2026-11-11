@@ -37,6 +37,8 @@ try {
   const { rows } = await import('../server/db.js');
   const { hashPassword } = await import('../server/auth.js');
   const { createApp } = await import('../server/app.js');
+  const { testStudioTools } = await import('./studio-tools-integration.js');
+  await testStudioTools({ createApp, rows, hashPassword, origin: 'http://localhost:5173' });
   const { claimJob, processJob } = await import('../server/worker.js');
   const { run } = await import('../server/audio.js');
   const { testAccountEmail } = await import('./account-email-integration.js');

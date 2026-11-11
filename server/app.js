@@ -24,6 +24,7 @@ import { channelRoutes, publicChannels, channelSlug, channelSummary, seriesSumma
 import { workerMedia } from './worker-media.js';
 import { createCommerce } from './commerce.js';
 import { audioUploadLimit, guardedUpload, storageUsed, withMediaTransferBudget } from './upload-budget.js';
+import { studioTools } from './studio-tools.js';
 
 const asyncRoute = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const failure = (message, status = 400) => Object.assign(new Error(message), { status });
@@ -61,7 +62,7 @@ async function deleteEpisode(id, { ownerId, version } = {}) {
   }
 }
 
-export async function createApp({ serveStatic = true, stripeClient, commerceSettings, mailer = createMailer(), newsletter = createNewsletterClient(), marketing = createNewsletterMarketing() } = {}) {
+export async function createApp({ serveStatic = true, stripeClient, commerceSettings, studioAI, mailer = createMailer(), newsletter = createNewsletterClient(), marketing = createNewsletterMarketing() } = {}) {
   await mkdir(path.join(config.mediaDir, 'uploads'), { recursive: true });
   await mkdir(path.join(config.mediaDir, 'exports'), { recursive: true });
   const app = express();
@@ -216,6 +217,7 @@ export async function createApp({ serveStatic = true, stripeClient, commerceSett
     await rows('DELETE FROM sessions WHERE user_id = ? AND csrf_token = ?', [req.user.id, req.csrf]);
     res.clearCookie('gh_session', { ...cookieOptions(), maxAge: undefined }).json({ ok: true });
   }));
+  app.use('/api/studio-tools', studioTools({ generate: studioAI }));
   app.get('/api/episodes', asyncRoute(async (req, res) => {
     const episodes = await rows('SELECT * FROM episodes WHERE user_id = ? ORDER BY updated_at DESC', [req.user.id]);
     const published = await rows('SELECT p.episode_id, p.job_id FROM publications p JOIN episodes e ON e.id = p.episode_id WHERE e.user_id = ?', [req.user.id]);
