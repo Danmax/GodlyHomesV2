@@ -1,8 +1,12 @@
 import nodemailer from 'nodemailer';
 import { z } from 'zod';
+import { createGmailMailer } from './gmail.js';
 import { config } from './config.js';
 
-export function createMailer(env = process.env, transportFactory = nodemailer.createTransport) {
+export function createMailer(env = process.env, transportFactory = nodemailer.createTransport, request = fetch) {
+  const provider = env.MAIL_PROVIDER || (env.GMAIL_CLIENT_ID ? 'gmail' : 'smtp');
+  if (provider === 'gmail') return createGmailMailer(env, request);
+  if (provider !== 'smtp') throw new Error('MAIL_PROVIDER must be gmail or smtp.');
   const ready = ['SMTP_HOST', 'SMTP_USER', 'SMTP_PASSWORD', 'MAIL_FROM'].every(key => Boolean(env[key]));
   if (!ready) return { ready: false, send: async () => { throw new Error('Account email is not configured.'); }, verify: async () => { throw new Error('Configure SMTP_HOST, SMTP_USER, SMTP_PASSWORD and MAIL_FROM.'); } };
   const from = z.email().max(254).parse(env.MAIL_FROM);
@@ -16,7 +20,7 @@ export function createMailer(env = process.env, transportFactory = nodemailer.cr
     disableFileAccess: true, disableUrlAccess: true,
   });
   return {
-    ready: true,
+    ready: true, provider: 'smtp',
     verify: () => transport.verify(),
     send: async ({ to, subject, text }) => {
       const result = await transport.sendMail({ from: { name: 'Godly Homes', address: from }, to, subject, text });

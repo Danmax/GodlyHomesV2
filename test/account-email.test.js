@@ -31,3 +31,59 @@ test('email links use a fixed application origin and fragments for secrets', () 
     assert.ok(message.text.includes(purpose === 'verify' ? '24 hours' : '30 minutes'));
   }
 });
+
+test('Gmail OAuth refreshes once, composes a real MIME message and sends through the Gmail API', async () => {
+  const env = { MAIL_PROVIDER: 'gmail', MAIL_FROM: 'hello@example.com', GMAIL_CLIENT_ID: 'client', GMAIL_CLIENT_SECRET: 'secret', GMAIL_REFRESH_TOKEN: 'refresh' };
+  const calls = [];
+  const request = async (url, options) => {
+    calls.push({ url, options });
+    if (url.endsWith('/token')) return Response.json({ access_token: 'access', expires_in: 3600, scope: 'https://www.googleapis.com/auth/gmail.send' });
+    return Response.json({ id: 'gmail-message' });
+  };
+  const mailer = createMailer(env, undefined, request);
+  assert.equal(mailer.provider, 'gmail');
+  await Promise.all([mailer.verify(), mailer.verify()]);
+  await mailer.send({ to: 'member@example.com', subject: 'Welcome', text: 'Hello from Godly Homes' });
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].options.body.get('grant_type'), 'refresh_token');
+  assert.equal(calls[0].options.body.get('refresh_token'), 'refresh');
+  assert.equal(calls[1].options.headers.Authorization, 'Bearer access');
+  const mime = Buffer.from(JSON.parse(calls[1].options.body).raw, 'base64url').toString();
+  assert.match(mime, /From: Godly Homes <hello@example.com>/);
+  assert.match(mime, /To: member@example.com/);
+  assert.match(mime, /Subject: Welcome/);
+  assert.match(mime, /Hello from Godly Homes/);
+  assert.equal(calls[1].options.redirect, 'error');
+});
+
+test('Gmail OAuth configuration fails closed and never falls back to a password', async () => {
+  const incomplete = createMailer({ MAIL_PROVIDER: 'gmail', SMTP_PASSWORD: 'unused' });
+  assert.equal(incomplete.ready, false);
+  await assert.rejects(incomplete.verify(), /GMAIL_CLIENT_ID/);
+  const env = { MAIL_PROVIDER: 'gmail', MAIL_FROM: 'hello@example.com', GMAIL_CLIENT_ID: 'client', GMAIL_CLIENT_SECRET: 'secret', GMAIL_REFRESH_TOKEN: 'refresh' };
+  const denied = createMailer(env, undefined, async () => Response.json({ error: 'invalid_grant', error_description: 'sensitive details' }, { status: 400 }));
+  await assert.rejects(denied.verify(), error => error.code === 'EMAIL_OAUTH_AUTH' && !error.message.includes('sensitive'));
+  const wrongScope = createMailer(env, undefined, async () => Response.json({ access_token: 'access', expires_in: 3600, scope: 'openid' }));
+  await assert.rejects(wrongScope.verify(), error => error.code === 'EMAIL_OAUTH_SCOPE');
+  assert.throws(() => createMailer({ MAIL_PROVIDER: 'unknown' }), /MAIL_PROVIDER/);
+});
+
+test('Gmail retries only an explicit unauthorized send and does not repeat ambiguous failures', async () => {
+  const env = { MAIL_PROVIDER: 'gmail', MAIL_FROM: 'hello@example.com', GMAIL_CLIENT_ID: 'client', GMAIL_CLIENT_SECRET: 'secret', GMAIL_REFRESH_TOKEN: 'refresh' };
+  let refreshes = 0, sends = 0;
+  const request = async url => {
+    if (url.endsWith('/token')) { refreshes++; return Response.json({ access_token: `access-${refreshes}`, expires_in: 3600 }); }
+    sends++;
+    return sends === 1 ? Response.json({}, { status: 401 }) : Response.json({ id: 'sent' });
+  };
+  await createMailer(env, undefined, request).send({ to: 'member@example.com', subject: 'Test', text: 'Test' });
+  assert.equal(refreshes, 2); assert.equal(sends, 2);
+  sends = 0;
+  const failing = createMailer(env, undefined, async url => {
+    if (url.endsWith('/token')) return Response.json({ access_token: 'access', expires_in: 3600 });
+    sends++;
+    return Response.json({}, { status: 503 });
+  });
+  await assert.rejects(failing.send({ to: 'member@example.com', subject: 'Test', text: 'Test' }), error => error.code === 'EMAIL_GMAIL_SEND');
+  assert.equal(sends, 1);
+});

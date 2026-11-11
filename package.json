@@ -18,7 +18,8 @@
     "test": "node --test test/*.test.js",
     "test:integration": "node test/integration.js",
     "test:pages": "node test/public-pages.js",
-    "email:check": "node --env-file-if-exists=.env server/check-email.js"
+    "email:check": "node --env-file-if-exists=.env server/check-email.js",
+    "email:test": "node --env-file-if-exists=.env server/test-email.js"
   },
   "dependencies": {
     "express": "5.1.0",
