@@ -13,7 +13,7 @@ Solo podcast recording and publishing for **godlyhomes.com**. The original two J
 - Durable background render jobs with leases, heartbeat, interrupted-job recovery, FFmpeg two-pass loudness normalization, MP3 review and explicit publishing.
 - Published versions remain unchanged during later draft edits. Unpublishing removes the public player/feed access.
 - Episode owners can delete a draft or published episode from the list or editor after confirmation. Deletion removes the episode, its publication and render jobs; original/shared source audio remains available. Queued jobs are removed and running workers discard results for deleted jobs.
-- Newsletter email collection with explicit consent. **Email delivery is not configured**; the UI confirms saved signup only.
+- Newsletter email collection with explicit consent, durable Resend Contacts/Segment sync, and retry after provider outages.
 - Website Admin through the same login: edit About, homepage and announcement copy, Reflexions/store page headings, logo, navigation, contact/footer and signup text. Create, edit, publish, unpublish and delete external Reflexions and digital/physical store items, including images, prices and checkout links.
 
 The runtime is React/Vite + Express + `mysql2`, using versioned SQL migrations. This keeps the existing React components usable without a framework migration. Audio is converted into lossless FLAC sources on a persistent volume; database rows contain paths/metadata and edit instructions, not audio blobs. A separate worker renders MP3 exports. This is the single-VPS MVP storage implementation; S3/CDN integration is a later deployment option.
@@ -55,9 +55,22 @@ REGISTRATION_ENABLED=true
 
 Keep local `APP_URL=http://localhost:5173` during development; use `APP_URL=https://godlyhomes.com` on the hosted app. Never put the API key in a `VITE_` variable, source control, or client-side JavaScript. The Resend transport has a 20-second request timeout, rejects HTTP redirects, and omits provider response details from application logs. It does not automatically retry ambiguous send failures. Welcome retries use a stable per-user idempotency key, which Resend deduplicates for 24 hours; duplicates can still occur after that window. See [Resend idempotency](https://resend.com/docs/dashboard/emails/idempotency-keys).
 
-`resend` is the default provider. Legacy transports remain available explicitly with `MAIL_PROVIDER=gmail` plus `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN`, or `MAIL_PROVIDER=smtp` plus the SMTP settings. Selecting Resend never falls back to either of them if its API key is absent or rejected. Missing provider credentials disable email flows while preserving existing sign-in. Set `REGISTRATION_ENABLED=false` to close new signups while retaining reset/verification for existing accounts. Request endpoints return the same message for unknown and existing accounts and enforce IP limits plus a database-backed one-minute cooldown per recipient/purpose. Verification/reset email requests are not retried automatically; users can request a new link. Welcome messages are retried by the API. Newsletter marketing remains signup storage only.
+`resend` is the default provider. Legacy transports remain available explicitly with `MAIL_PROVIDER=gmail` plus `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN`, or `MAIL_PROVIDER=smtp` plus the SMTP settings. Selecting Resend never falls back to either of them if its API key is absent or rejected. Missing provider credentials disable email flows while preserving existing sign-in. Set `REGISTRATION_ENABLED=false` to close new signups while retaining reset/verification for existing accounts. Request endpoints return the same message for unknown and existing accounts and enforce IP limits plus a database-backed one-minute cooldown per recipient/purpose. Verification/reset email requests are not retried automatically; users can request a new link. Welcome messages are retried by the API. Newsletter contact synchronization is configured below; campaigns are composed and sent separately in Resend.
 
 Validate on the hosted app with a real new address: register, confirm the verification and welcome messages, verify sign-in and member access, request a reset, and confirm the new password works and old sessions are revoked. Automated integration tests use a fake mail transport and never send real mail. Domain DNS alone does not authorize the app to send.
+
+### Newsletter signup → Resend Contacts
+
+No name is required: the current form keeps email and explicit newsletter consent. Apply migration `011_newsletter_resend.sql` before deploying newsletter sync. New signups are saved locally first, then synchronized to Resend Contacts. Failures retain the consent record and retry through the running API every minute, with exponential delay up to one hour. Existing consented subscribers are backfilled automatically after configuration. Account registration alone never enrolls someone in the newsletter.
+
+Resend now uses global [Contacts](https://resend.com/docs/api-reference/contacts/create-contact) and [Segments](https://resend.com/docs/api-reference/contacts/add-contact-to-segment) for lists. Set these server-only variables locally and in Hostinger:
+
+```dotenv
+RESEND_CONTACTS_API_KEY=<separate Resend Full access key>
+RESEND_NEWSLETTER_SEGMENT_ID=<optional newsletter segment UUID>
+```
+
+The transactional sending-only key cannot manage contacts. Keep it unchanged and use the separate contact-management key above. Without a segment ID, contacts are added to the general Contacts list; with one, they also join that segment. Changing the configured segment queues existing subscribers for addition to the new segment and does not remove earlier memberships. Blank names are accepted. Existing contact names and unsubscribe status are never overwritten, and previously unsubscribed contacts stay suppressed in Resend. Resubscription/preferences and Broadcast unsubscribe processing remain managed in Resend; this is one-way signup synchronization, not a webhook mirror of remote subscription status. Repeated signups preserve the first stored consent time and do not repeat a completed sync. Use the local sync status/error fields to diagnose queued subscribers without logging addresses or provider response bodies. The site confirms only that the email was saved, never provider delivery.
 
 ### Website Admin
 

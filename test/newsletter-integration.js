@@ -1,0 +1,51 @@
+import assert from 'node:assert/strict';
+import request from 'supertest';
+import { syncPendingNewsletter, syncNewsletterSubscriber } from '../server/newsletter.js';
+
+export async function testNewsletter({ createApp, rows, origin }) {
+  const calls = [];
+  let failing = false;
+  const client = { ready: true, segmentId: null, add: async email => {
+    calls.push(email);
+    if (failing) throw Object.assign(new Error('Sensitive error'), { code: 'NEWSLETTER_RESEND_API' });
+    return { id: 'contact-' + calls.length };
+  } };
+  const app = await createApp({ newsletter: client });
+  const signup = body => request(app).post('/api/subscribe').set('Origin', origin).send(body);
+  assert.equal((await signup({ email: 'news@example.com', consent: false })).status, 400);
+  assert.equal(calls.length, 0);
+  assert.equal((await signup({ email: 'NEWS@example.com', consent: true })).status, 200);
+  assert.deepEqual(calls, ['news@example.com']);
+  let [subscriber] = await rows('SELECT * FROM subscribers WHERE email = ?', ['news@example.com']);
+  assert.ok(subscriber.resend_synced_at); assert.equal(subscriber.resend_contact_id, 'contact-1');
+  const consentAt = subscriber.consent_at;
+  await signup({ email: 'news@example.com', consent: true });
+  assert.equal(calls.length, 1, 'Duplicate signups do not duplicate external calls');
+  assert.equal((await rows('SELECT consent_at FROM subscribers WHERE email = ?', ['news@example.com']))[0].consent_at.getTime(), consentAt.getTime());
+  failing = true;
+  assert.equal((await signup({ email: 'outage-news@example.com', consent: true })).status, 200);
+  [subscriber] = await rows('SELECT * FROM subscribers WHERE email = ?', ['outage-news@example.com']);
+  assert.equal(subscriber.resend_synced_at, null); assert.equal(subscriber.resend_sync_attempts, 1);
+  assert.equal(subscriber.resend_sync_error, 'NEWSLETTER_RESEND_API'); assert.ok(subscriber.resend_retry_at);
+  const before = calls.length;
+  await syncNewsletterSubscriber(subscriber.email, client);
+  assert.equal(calls.length, before, 'Repeated requests respect the retry delay');
+  failing = false;
+  await rows('UPDATE subscribers SET resend_retry_at = DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 SECOND) WHERE email = ?', [subscriber.email]);
+  await syncPendingNewsletter(client);
+  assert.equal((await rows('SELECT resend_synced_at FROM subscribers WHERE email = ?', [subscriber.email]))[0].resend_synced_at instanceof Date, true);
+  await rows('INSERT INTO subscribers (email) VALUES (?)', ['legacy-news@example.com']);
+  await syncPendingNewsletter(client);
+  assert.ok(calls.includes('legacy-news@example.com'), 'Existing consented subscribers are backfilled');
+  const segmented = { ...client, segmentId: 'dc77cf5b-efac-4e5e-a73e-70aaf85d699e' };
+  await syncPendingNewsletter(segmented);
+  assert.equal((await rows('SELECT resend_segment_id FROM subscribers WHERE email = ?', ['news@example.com']))[0].resend_segment_id, segmented.segmentId);
+  await rows('INSERT INTO subscribers (email) VALUES (?)', ['race-news@example.com']);
+  const start = calls.length;
+  await Promise.all([syncNewsletterSubscriber('race-news@example.com', client), syncNewsletterSubscriber('race-news@example.com', client)]);
+  assert.equal(calls.length, start + 1, 'Concurrent signup/retry serializes contact creation');
+  const offline = await createApp({ newsletter: { ready: false } });
+  assert.equal((await request(offline).post('/api/subscribe').set('Origin', origin).send({ email: 'pending-news@example.com', consent: true })).status, 200);
+  assert.equal((await rows('SELECT resend_synced_at FROM subscribers WHERE email = ?', ['pending-news@example.com']))[0].resend_synced_at, null);
+  console.log('PASS: Newsletter consent, email-only signup, Resend sync, deduplication, outage retry, legacy backfill, segmentation, and concurrent requests.');
+}

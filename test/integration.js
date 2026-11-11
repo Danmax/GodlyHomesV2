@@ -41,6 +41,8 @@ try {
   const { run } = await import('../server/audio.js');
   const { testAccountEmail } = await import('./account-email-integration.js');
   await testAccountEmail({ createApp, rows, origin: 'http://localhost:5173' });
+  const { testNewsletter } = await import('./newsletter-integration.js');
+  await testNewsletter({ createApp, rows, origin: 'http://localhost:5173' });
   const app = await createApp();
   const origin = 'http://localhost:5173';
   const userId = randomUUID(), otherId = randomUUID();

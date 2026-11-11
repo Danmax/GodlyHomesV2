@@ -3,19 +3,25 @@ import { config } from './config.js';
 import { db } from './db.js';
 import { createMailer } from './email.js';
 import { retryAccountEmail } from './account.js';
+import { createNewsletterClient, syncPendingNewsletter } from './newsletter.js';
 
 // Passenger loads the entry file through require(). Keep this module graph free
 // of top-level await so Node can load it before asynchronous initialization.
 async function start() {
   const mailer = createMailer();
-  const app = await createApp({ mailer });
+  const newsletter = createNewsletterClient();
+  const app = await createApp({ mailer, newsletter });
   let emailRunning = false;
   const retryEmail = async () => {
     if (emailRunning) return;
     emailRunning = true;
     try { await retryAccountEmail(mailer); }
     catch (error) { console.error('Account email retry failed:', error.code || 'delivery_error'); }
-    finally { emailRunning = false; }
+    finally {
+      try { await syncPendingNewsletter(newsletter); }
+      catch (error) { console.error('Newsletter sync retry failed:', error.code || 'sync_error'); }
+      emailRunning = false;
+    }
   };
   const emailTimer = setInterval(retryEmail, 60000);
   emailTimer.unref();

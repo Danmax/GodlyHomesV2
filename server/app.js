@@ -9,6 +9,7 @@ import { z } from 'zod';
 import { rows, transaction, json } from './db.js';
 import { accountRoutes } from './account.js';
 import { createMailer } from './email.js';
+import { createNewsletterClient, syncNewsletterSubscriber } from './newsletter.js';
 import { config } from './config.js';
 import { authenticate, cookieOptions, digest, hashPassword, verifyPassword, requireAdmin } from './auth.js';
 import { episodeSchema, validateAssets } from './validation.js';
@@ -57,7 +58,7 @@ async function deleteEpisode(id, { ownerId, version } = {}) {
   }
 }
 
-export async function createApp({ serveStatic = true, stripeClient, commerceSettings, mailer = createMailer() } = {}) {
+export async function createApp({ serveStatic = true, stripeClient, commerceSettings, mailer = createMailer(), newsletter = createNewsletterClient() } = {}) {
   await mkdir(path.join(config.mediaDir, 'uploads'), { recursive: true });
   await mkdir(path.join(config.mediaDir, 'exports'), { recursive: true });
   const app = express();
@@ -143,7 +144,12 @@ export async function createApp({ serveStatic = true, stripeClient, commerceSett
   }));
   app.post('/api/subscribe', rateLimit({ windowMs: 3600000, limit: 10, legacyHeaders: false }), asyncRoute(async (req, res) => {
     const { email, consent } = z.object({ email: z.email().max(254), consent: z.literal(true) }).parse(req.body);
-    await rows('INSERT IGNORE INTO subscribers (email) VALUES (?)', [email.toLowerCase().trim()]);
+    const normalized = email.toLowerCase().trim();
+    await rows('INSERT IGNORE INTO subscribers (email) VALUES (?)', [normalized]);
+    // Consent is durable before attempting the external service. Delivery errors
+    // leave it queued for the running API to retry rather than losing a signup.
+    try { await syncNewsletterSubscriber(normalized, newsletter); }
+    catch (error) { console.error('Newsletter sync unavailable:', error.code || 'database_error'); }
     res.json({ message: 'You’re on the list. Thank you for joining us.' });
   }));
 
