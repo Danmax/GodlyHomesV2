@@ -1,12 +1,14 @@
 import nodemailer from 'nodemailer';
 import { z } from 'zod';
 import { createGmailMailer } from './gmail.js';
+import { createResendMailer } from './resend.js';
 import { config } from './config.js';
 
 export function createMailer(env = process.env, transportFactory = nodemailer.createTransport, request = fetch) {
-  const provider = env.MAIL_PROVIDER || (env.GMAIL_CLIENT_ID ? 'gmail' : 'smtp');
+  const provider = env.MAIL_PROVIDER || 'resend';
+  if (provider === 'resend') return createResendMailer(env, request);
   if (provider === 'gmail') return createGmailMailer(env, request);
-  if (provider !== 'smtp') throw new Error('MAIL_PROVIDER must be gmail or smtp.');
+  if (provider !== 'smtp') throw new Error('MAIL_PROVIDER must be resend, gmail or smtp.');
   const ready = ['SMTP_HOST', 'SMTP_USER', 'SMTP_PASSWORD', 'MAIL_FROM'].every(key => Boolean(env[key]));
   if (!ready) return { ready: false, send: async () => { throw new Error('Account email is not configured.'); }, verify: async () => { throw new Error('Configure SMTP_HOST, SMTP_USER, SMTP_PASSWORD and MAIL_FROM.'); } };
   const from = z.email().max(254).parse(env.MAIL_FROM);
@@ -44,9 +46,9 @@ export function accountMessage(purpose, token) {
 }
 
 // Called while holding the user's row lock. Failed delivery leaves the welcome
-// pending, so the server's periodic sweep can retry it after an SMTP outage.
+// pending, so the server's periodic sweep can retry it after a delivery outage.
 export async function sendWelcome(user, mailer, query) {
   if (user.welcome_sent_at || !user.email_verified_at) return;
-  await mailer.send({ to: user.email, subject: 'Welcome to Godly Homes', text: `Your email is verified. Welcome to Godly Homes!\n\nWe are glad you are here. Explore encouragement, podcasts, and resources for your home:\n${config.origin}/\n\nManage your account at ${config.origin}/studio.\n\nWith love,\nThe Godly Homes team` });
+  await mailer.send({ to: user.email, idempotencyKey: `welcome-user/${user.id}`, subject: 'Welcome to Godly Homes', text: `Your email is verified. Welcome to Godly Homes!\n\nWe are glad you are here. Explore encouragement, podcasts, and resources for your home:\n${config.origin}/\n\nManage your account at ${config.origin}/studio.\n\nWith love,\nThe Godly Homes team` });
   await query('UPDATE users SET welcome_sent_at = UTC_TIMESTAMP() WHERE id = ?', [user.id]);
 }

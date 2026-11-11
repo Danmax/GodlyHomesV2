@@ -4,9 +4,9 @@ import { createMailer, accountMessage } from '../server/email.js';
 
 test('SMTP requires complete configuration and verified TLS, and checks recipient acceptance', async () => {
   assert.equal(createMailer({}).ready, false);
-  await assert.rejects(createMailer({}).verify(), /Configure SMTP/);
+  await assert.rejects(createMailer({}).verify(), /Configure RESEND_API_KEY/);
   let settings, message;
-  const env = { SMTP_HOST: 'smtp.gmail.com', SMTP_USER: 'hello@example.com', SMTP_PASSWORD: 'secret', MAIL_FROM: 'hello@example.com' };
+  const env = { MAIL_PROVIDER: 'smtp', SMTP_HOST: 'smtp.gmail.com', SMTP_USER: 'hello@example.com', SMTP_PASSWORD: 'secret', MAIL_FROM: 'hello@example.com' };
   const mailer = createMailer(env, options => { settings = options; return { verify: async () => true, sendMail: async value => { message = value; return { accepted: [value.to] }; } }; });
   await mailer.verify();
   await mailer.send({ to: 'member@example.com', subject: 'Welcome', text: 'Hello' });
@@ -86,4 +86,34 @@ test('Gmail retries only an explicit unauthorized send and does not repeat ambig
   });
   await assert.rejects(failing.send({ to: 'member@example.com', subject: 'Test', text: 'Test' }), error => error.code === 'EMAIL_GMAIL_SEND');
   assert.equal(sends, 1);
+});
+
+test('Resend is the default provider and uses a sending-only API key without management calls', async () => {
+  const calls = [];
+  const mailer = createMailer({ RESEND_API_KEY: 'private-key', MAIL_FROM: 'hello@example.com' }, undefined, async (url, options) => {
+    calls.push({ url, options }); return Response.json({ id: 'resend-message' });
+  });
+  assert.equal(mailer.ready, true); assert.equal(mailer.provider, 'resend');
+  await mailer.verify();
+  assert.equal(calls.length, 0, 'Configuration check makes no authentication or delivery claim');
+  assert.deepEqual(await mailer.send({ to: 'member@example.com', subject: 'Welcome', text: 'Hello', idempotencyKey: 'welcome-user/123' }), { id: 'resend-message' });
+  assert.equal(calls[0].url, 'https://api.resend.com/emails');
+  assert.equal(calls[0].options.headers.Authorization, 'Bearer private-key');
+  assert.equal(calls[0].options.headers['Idempotency-Key'], 'welcome-user/123');
+  assert.equal(calls[0].options.redirect, 'error');
+  assert.deepEqual(JSON.parse(calls[0].options.body), { from: 'Godly Homes <hello@example.com>', to: ['member@example.com'], subject: 'Welcome', text: 'Hello' });
+});
+
+test('Resend rejects incomplete settings and sanitizes provider errors without retrying or falling back', async () => {
+  const unavailable = createMailer({ MAIL_PROVIDER: 'resend', SMTP_PASSWORD: 'unused', GMAIL_CLIENT_ID: 'unused' });
+  assert.equal(unavailable.ready, false);
+  await assert.rejects(unavailable.verify(), /Configure RESEND_API_KEY/);
+  for (const [status, code] of [[401, 'EMAIL_RESEND_AUTH'], [403, 'EMAIL_RESEND_FORBIDDEN'], [429, 'EMAIL_RESEND_RATE_LIMIT'], [503, 'EMAIL_RESEND_SEND'], [200, 'EMAIL_RESEND_SEND']]) {
+    let requests = 0;
+    const mailer = createMailer({ RESEND_API_KEY: 'private-key', MAIL_FROM: 'hello@example.com' }, undefined, async () => {
+      requests++; return Response.json({ message: 'sensitive provider details' }, { status });
+    });
+    await assert.rejects(mailer.send({ to: 'member@example.com', subject: 'Test', text: 'Test' }), error => error.code === code && !error.message.includes('sensitive') && !error.message.includes('private-key'));
+    assert.equal(requests, 1);
+  }
 });
