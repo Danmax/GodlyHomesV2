@@ -12,7 +12,7 @@ export async function testStudioBuilderBrowser(browser, origin) {
   for (let i = 0; i < 240000; i++) wav.writeInt16LE(Math.round(Math.sin(i / 24000 * 440 * Math.PI * 2) * 6000), 44 + i * 2);
   await page.route('**/fixture-audio', route => route.fulfill({ contentType: 'audio/wav', body: wav }));
   const asset = name => ({ id: randomUUID(), name, duration: 10, bytes: wav.length, url: '/fixture-audio' });
-  let assets = [asset('Sunday recording'), asset('Music bed')], voiceEnabled = true;
+  let assets = [asset('Sunday recording'), { ...asset('Music bed'), category: 'music' }], voiceEnabled = true;
   let episode = { id: randomUUID(), title: 'Family rhythms', number: 1, description: '', updatedAt: '2026-11-11', version: 1, seriesId: null, arrangement: { segments: [{ id: randomUUID(), assetId: assets[0].id, name: assets[0].name, role: 'segment', start: 0, end: 10, gain: 1, fadeIn: 0, fadeOut: 0 }], music: { assetId: null, volume: .2, duck: true } } };
   const generated = asset('AI intro — marin');
   await page.route('**/api/**', route => {
@@ -26,7 +26,7 @@ export async function testStudioBuilderBrowser(browser, origin) {
     else if (path.endsWith('/jobs')) json = [];
     else if (path === '/api/studio-tools/options') json = { introEnabled: voiceEnabled, voices: ['marin', 'cedar'] };
     else if (path.endsWith('/analyze')) json = { silences: [{ start: 3, end: 4 }] };
-    else if (path.startsWith('/api/studio-tools/assets/') && method === 'PATCH') { const id = path.split('/').at(-1); assets = assets.map(a => a.id === id ? { ...a, name: route.request().postDataJSON().name } : a); json = assets.find(a => a.id === id); }
+    else if (path.startsWith('/api/studio-tools/assets/') && method === 'PATCH') { const id = path.split('/').at(-1); assets = assets.map(a => a.id === id ? { ...a, ...route.request().postDataJSON() } : a); json = assets.find(a => a.id === id); }
     else if (path.endsWith('/intro/script')) json = { script: 'Welcome to our show. Today we are talking about family rhythms.' };
     else if (path.endsWith('/intro/voice')) { assets.unshift(generated); json = generated; }
     else { unexpected.push(path); return route.fulfill({ status: 404, json: { error: `Unexpected fixture: ${path}` } }); }
@@ -64,8 +64,11 @@ export async function testStudioBuilderBrowser(browser, origin) {
     await page.getByRole('button', { name: 'Apply suggested edits', exact: true }).click();
     await saved(); assert.ok(episode.arrangement.segments.reduce((sum, s) => sum + s.end - s.start, 0) < 20);
     const count = episode.arrangement.segments.length;
-    await page.getByLabel('Audio library').selectOption(assets.find(a => a.name === 'Music bed').id);
+    assert.deepEqual(await page.getByLabel('Music source').locator('option').allTextContents(), ['No background music', 'Music bed']);
     await page.getByLabel('Add as', { exact: true }).selectOption('music');
+    assert.equal(await page.getByLabel('Audio library').inputValue(), '', 'Switching to music clears a selected recording');
+    assert.deepEqual(await page.getByLabel('Audio library').locator('option').allTextContents(), ['Choose a background music track', 'Music bed']);
+    await page.getByLabel('Audio library').selectOption(assets.find(a => a.name === 'Music bed').id);
     await page.getByRole('button', { name: 'Use as background music', exact: true }).click();
     await saved(); assert.equal(episode.arrangement.segments.length, count);
     await page.getByRole('button', { name: 'Apply auto mix', exact: true }).click();

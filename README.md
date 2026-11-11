@@ -80,6 +80,10 @@ Apply migration `014_newsletter_studio.sql` before starting this version (`npm r
 
 No new key is needed when the existing contacts key has Full access. Resend marketing approval and account limits may still apply. Automated tests mock all email and marketing operations and never broadcast to real subscribers.
 
+### Background music library
+
+Apply `015_audio_categories.sql` before updating the application. Background music pickers show only tracks saved as **Background music**. **Upload music** and **Add as → Background music** uploads save that type automatically. For an existing library track, select it and set **Audio type → Background music**. Tracks already used as background music in drafts or render history are classified during migration.
+
 ### Users, podcaster approvals, and junior administrators
 
 Apply migration `012_user_management.sql` before deploying this version. Sign in as a full administrator and open **Website Admin → Users & approvals**. Search verified member accounts, review pending podcaster requests, assign Member/Podcaster/Junior admin/Full admin roles, deactivate/reactivate access, sign out all devices, and inspect access history. A person first creates and verifies their own account at `/account`; administrators then assign elevated access. No account passwords are shown or set through user management. Full administrators must confirm role, deactivation/reactivation, and session-revocation changes with their own current password. Reauthentication passwords are never stored in access history.

@@ -9,7 +9,8 @@ export async function api(url, { method = 'GET', body, ...options } = {}) {
   if (data.csrf) csrf = data.csrf;
   return data;
 }
-export function uploadAudio(blob, name) {
+export function uploadAudio(blob, name, category = 'recording') {
   const body = new FormData(); body.append('audio', blob, name);
+  body.append('category', category);
   return api('/api/assets', { method: 'POST', body });
 }

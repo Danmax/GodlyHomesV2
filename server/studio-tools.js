@@ -33,11 +33,12 @@ export function studioTools({ generate = generateIntro } = {}) {
   router.get('/options', (_req, res) => res.json({ introEnabled: Boolean(process.env.OPENAI_API_KEY), voices: introVoices }));
   router.patch('/assets/:id', route(async (req, res) => {
     const id = z.uuid().parse(req.params.id);
-    const { name } = z.object({ name: z.string().trim().min(1).max(200).refine(s => !/[\u0000-\u001f]/.test(s), 'Use a name without control characters.') }).parse(req.body);
+    const input = z.object({ name: z.string().trim().min(1).max(200).refine(s => !/[\u0000-\u001f]/.test(s), 'Use a name without control characters.').optional(), category: z.enum(['recording', 'music']).optional() }).refine(value => value.name !== undefined || value.category !== undefined, 'Choose a name or audio type.').parse(req.body);
     const [asset] = await rows('SELECT * FROM assets WHERE id = ? AND user_id = ?', [id, req.user.id]);
     if (!asset) throw fail('Audio source not found.', 404);
-    await rows('UPDATE assets SET filename = ? WHERE id = ? AND user_id = ?', [name, id, req.user.id]);
-    res.json({ id, name, duration: asset.duration, bytes: Number(asset.bytes), url: `/api/assets/${id}/audio` });
+    const name = input.name ?? asset.filename, category = input.category ?? asset.category;
+    await rows('UPDATE assets SET filename = ?, category = ? WHERE id = ? AND user_id = ?', [name, category, id, req.user.id]);
+    res.json({ id, name, category, duration: asset.duration, bytes: Number(asset.bytes), url: `/api/assets/${id}/audio` });
   }));
   router.post('/assets/:id/analyze', limited(20), route(async (req, res) => {
     const id = z.uuid().parse(req.params.id);

@@ -35,7 +35,7 @@ const publicQuery = `SELECT p.*, j.bytes, j.duration, c.slug AS channel_slug, c.
   JOIN render_jobs j ON j.id = p.job_id AND (c.user_id IS NULL OR c.is_public = TRUE)`;
 const mapEpisode = e => ({ id: e.id, title: e.title, description: e.description, number: e.episode_number, seriesId: e.series_id || null, version: e.version, arrangement: json(e.arrangement), updatedAt: e.updated_at, adminHidden: Boolean(e.admin_hidden) });
 const mapPublicEpisode = e => ({ id: e.episode_id, title: e.title, description: e.description, number: e.episode_number, duration: e.duration, publishedAt: e.published_at, url: `/media/${e.episode_id}/${e.job_id}.mp3`, channel: channelSummary(e), series: seriesSummary(e) });
-const mapAsset = a => ({ id: a.id, name: a.filename, duration: a.duration, bytes: Number(a.bytes), url: `/api/assets/${a.id}/audio` });
+const mapAsset = a => ({ id: a.id, name: a.filename, category: a.category || 'recording', duration: a.duration, bytes: Number(a.bytes), url: `/api/assets/${a.id}/audio` });
 const mapJob = j => ({ id: j.id, revision: j.revision, state: j.state, error: j.error, createdAt: j.created_at, duration: j.duration, url: j.state === 'ready' ? `/api/jobs/${j.id}/audio` : null });
 async function audioPath(key, bytes) {
   try { return await requireMediaFile(key, bytes); }
@@ -251,6 +251,7 @@ export async function createApp({ serveStatic = true, stripeClient, commerceSett
     if (!file) throw failure('Choose an audio file.');
     let stored;
     try {
+      const category = z.enum(['recording', 'music']).default('recording').parse(req.body.category);
       const id = randomUUID();
       const storageKey = `uploads/${id}.flac`;
       stored = path.join(config.mediaDir, storageKey);
@@ -261,8 +262,8 @@ export async function createApp({ serveStatic = true, stripeClient, commerceSett
       if (size > config.maxProcessedBytes) throw failure('The processed recording exceeds the audio storage limit. Shorten the recording and retry.', 413);
       const duration = await probe(stored);
       const filename = file.originalname.replace(/[\u0000-\u001f]/g, '').slice(0, 200) || 'Recording';
-      await rows('INSERT INTO assets (id, user_id, filename, storage_key, mime, bytes, duration) VALUES (?, ?, ?, ?, ?, ?, ?)', [id, req.user.id, filename, storageKey, 'audio/flac', size, duration]);
-      return { id, name: filename, duration, bytes: size, url: `/api/assets/${id}/audio` };
+      await rows('INSERT INTO assets (id, user_id, filename, storage_key, mime, bytes, duration, category) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [id, req.user.id, filename, storageKey, 'audio/flac', size, duration, category]);
+      return { id, name: filename, category, duration, bytes: size, url: `/api/assets/${id}/audio` };
     } catch (error) {
       const oversized = stored && await stat(stored).then(details => details.size > config.maxProcessedBytes).catch(() => false);
       if (stored) await unlink(stored).catch(() => {});
