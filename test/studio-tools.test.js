@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
+import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { rootCertificates } from 'node:tls';
 import { randomUUID } from 'node:crypto';
 import { suggestClips, autoMix, introScript } from '../shared/podcast-editing.js';
 import { arrangementSchema } from '../server/validation.js';
@@ -60,6 +64,15 @@ test('intro transport returns completed PCM or text, closes sessions, and saniti
   assert.ok(sockets.every(s => s.closed && s.url.includes('gpt-realtime-2.1-mini')));
   assert.equal(sockets[1].sent[0].session.audio.output.voice, 'cedar');
   assert.ok(sockets.every(s => s.sent.filter(e => e.type === 'response.create').length === 1), 'Session updates never duplicate a paid generation');
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'gh-intro-ca-'));
+  try {
+    const bundle = path.join(directory, 'trusted.pem');
+    await writeFile(bundle, rootCertificates[0]);
+    await generateIntro({ text: 'Hello', userId: 'hashed-user' }, { ...options, extraCAFile: bundle });
+    assert.deepEqual(sockets.at(-1).options.ca, [...rootCertificates, rootCertificates[0]], 'Explicit local trust retains standard certificate roots');
+    assert.notEqual(sockets.at(-1).options.rejectUnauthorized, false, 'TLS verification stays enabled');
+    await assert.rejects(generateIntro({ text: 'Hello' }, { ...options, extraCAFile: path.join(directory, 'missing.pem') }), /configuration/);
+  } finally { await rm(directory, { recursive: true, force: true }); }
   await assert.rejects(generateIntro({ text: 'Hi' }, { apiKey: '' }), /configuration/);
   class Rejected extends Socket { send() { queueMicrotask(() => this.emit('message', Buffer.from('{"type":"error","error":{"message":"secret-provider-detail"}}'))); } }
   await assert.rejects(generateIntro({ text: 'Hi' }, { ...options, Socket: Rejected }), error => error.status === 503 && !error.message.includes('secret-provider-detail'));

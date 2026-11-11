@@ -1,4 +1,6 @@
 import WebSocket from 'ws';
+import { readFileSync } from 'node:fs';
+import { rootCertificates } from 'node:tls';
 
 export const introVoices = ['marin', 'cedar', 'coral', 'sage'];
 export const voiceDisclosure = 'This introduction uses an AI-generated voice.';
@@ -6,10 +8,16 @@ const unavailable = () => Object.assign(new Error('Intro generation is unavailab
 
 // A short, server-only Realtime session. No retries: an uncertain failure may
 // already have incurred provider usage. Keep partial audio out of the library.
-export function generateIntro({ instructions, text, voice = 'marin', audio = false, userId }, { apiKey = process.env.OPENAI_API_KEY, Socket = WebSocket, timeout = 120000 } = {}) {
+export function generateIntro({ instructions, text, voice = 'marin', audio = false, userId }, { apiKey = process.env.OPENAI_API_KEY, Socket = WebSocket, timeout = 120000, extraCAFile = process.env.NODE_EXTRA_CA_CERTS } = {}) {
   if (!apiKey) return Promise.reject(unavailable());
   return new Promise((resolve, reject) => {
+    // Node initializes trust before --env-file loads NODE_EXTRA_CA_CERTS.
+    // Honor that explicit local bundle here while retaining the normal roots.
+    let ca;
+    try { if (extraCAFile) ca = [...rootCertificates, readFileSync(extraCAFile, 'utf8')]; }
+    catch { reject(unavailable()); return; }
     const socket = new Socket('wss://api.openai.com/v1/realtime?model=gpt-realtime-2.1-mini', {
+      ...(ca ? { ca } : {}),
       headers: { Authorization: `Bearer ${apiKey}`, 'OpenAI-Safety-Identifier': userId },
       handshakeTimeout: 15000, maxPayload: 1024 * 1024,
     });
