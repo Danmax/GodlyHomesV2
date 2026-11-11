@@ -11,6 +11,7 @@ export async function testAccountBrowser(page, origin) {
     }
     return route.fulfill({ status: 401, json: { error: 'Sign in to continue.' } });
   });
+  await page.route('**/api/newsletter/confirm', route => { submissions.push({ endpoint: 'newsletter-confirm', body: route.request().postDataJSON() }); return route.fulfill({ json: { message: 'Newsletter signup confirmed.' } }); });
   await page.setViewportSize({ width: 320, height: 900 });
   await page.goto(`${origin}/account`);
   await page.getByRole('button', { name: 'Create an account' }).click();
@@ -24,20 +25,31 @@ export async function testAccountBrowser(page, origin) {
   await page.getByRole('button', { name: 'Send reset email' }).click();
   await page.getByRole('status').waitFor();
   assert.equal(submissions.at(-1).endpoint, 'forgot-password');
-  for (const action of ['verify', 'reset']) {
+  for (const action of ['verify', 'reset', 'newsletter']) {
     await page.goto(`${origin}/about`);
     const before = submissions.length;
     await page.goto(`${origin}/account#action=${action}&token=${'a'.repeat(64)}`);
-    await page.getByRole('heading', { name: action === 'verify' ? 'Confirm your email.' : 'Choose a new password.' }).waitFor();
+    await page.getByRole('heading', { name: action === 'verify' ? 'Confirm your email.' : action === 'reset' ? 'Choose a new password.' : 'Confirm your newsletter signup.' }).waitFor();
     assert.equal(new URL(page.url()).hash, '', 'Token is removed from the address bar');
     assert.equal(submissions.length, before, 'Opening an email link does not consume it');
     if (['reset', 'verify'].includes(action)) {
       await page.getByLabel('New password', { exact: true }).fill('Another-password-456');
       await page.getByLabel('Confirm password', { exact: true }).fill('Another-password-456');
     }
-    await page.getByRole('button', { name: action === 'verify' ? 'Verify my email' : 'Save new password' }).click();
+    await page.getByRole('button', { name: action === 'verify' ? 'Verify my email' : action === 'reset' ? 'Save new password' : 'Confirm newsletter signup' }).click();
     await page.getByRole('heading', { name: 'You’re all set.' }).waitFor();
     assert.equal(submissions.at(-1).body.token, 'a'.repeat(64));
   }
+  await page.route('**/api/subscribe', route => {
+    const body = route.request().postDataJSON();
+    assert.equal(body.consent, true);
+    return route.fulfill({ json: { message: 'Check your inbox to confirm your newsletter signup.' } });
+  });
+  await page.goto(`${origin}/#join`);
+  const newsletter = page.locator('#join');
+  await newsletter.getByLabel('Email address', { exact: true }).fill('reader@example.com');
+  await newsletter.getByRole('checkbox').check();
+  await newsletter.getByRole('button', { name: 'Join the list', exact: true }).click();
+  await newsletter.getByRole('status').filter({ hasText: 'Check your inbox to confirm' }).waitFor();
   console.log('PASS: Account registration, password reset and verification forms, explicit link confirmation, fragment removal, and 320px layout.');
 }

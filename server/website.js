@@ -82,14 +82,14 @@ imageRoutes.post('/images', imageUploadLimit(), guardedUpload('image', imageUplo
     const form = new FormData(); form.append('image', new Blob([data]), `image.${extension}`);
     const response = await fetch(new URL('/api/channel/images', config.remoteMediaOrigin), { method: 'POST', headers: { Cookie: req.headers.cookie, Origin: config.remoteMediaOrigin, 'X-CSRF-Token': req.csrf }, body: form, redirect: 'error', signal: AbortSignal.timeout(60000) });
     if (!response.ok) throw fail('The image could not be saved to the hosted website. Please try again.', 503);
-    const image = await response.json(); return res.status(201).json({ url: new URL(image.url, config.remoteMediaOrigin).href });
+    const image = await response.json(); return { url: new URL(image.url, config.remoteMediaOrigin).href };
   }
   const directory = path.join(config.mediaDir, 'images'); await mkdir(directory, { recursive: true });
   const filename = `${randomUUID()}.${extension}`;
   await writeFile(path.join(directory, filename), data, { flag: 'wx', mode: 0o644 });
   try { await rows('INSERT INTO image_uploads (filename, user_id, bytes) VALUES (?, ?, ?)', [filename, req.user.id, data.length]); }
   catch (error) { await unlink(path.join(directory, filename)).catch(() => {}); throw error; }
-  res.status(201).json({ url: `/images/${filename}` });
+  return { url: `/images/${filename}` };
 }));
 websiteAdmin.use(imageRoutes);
 

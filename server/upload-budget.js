@@ -33,15 +33,20 @@ export async function reserveUpload(userId, kind) {
 // Keep the reservation through conversion, even if the browser disconnects.
 export function guardedUpload(kind, upload, handler) {
   return (req, res, next) => {
-    let reservation;
-    Promise.resolve().then(async () => {
-      const forwardedImage = kind === 'image' && config.remoteMediaOrigin && config.remoteMediaOrigin !== config.origin && req.hostname !== new URL(config.remoteMediaOrigin).hostname;
-      if (!forwardedImage) reservation = await reserveUpload(req.user.id, kind);
-      await new Promise((resolve, reject) => upload(req, res, error => error ? reject(error) : resolve()));
-      await handler(req, res);
-    }).finally(async () => {
-      if (reservation) await rows('DELETE FROM upload_reservations WHERE id = ?', [reservation]).catch(error => console.error('Upload reservation cleanup failed:', error.code));
-    }).catch(next);
+    const perform = async () => {
+      let reservation;
+      try {
+        const forwardedImage = kind === 'image' && config.remoteMediaOrigin && config.remoteMediaOrigin !== config.origin && req.hostname !== new URL(config.remoteMediaOrigin).hostname;
+        if (!forwardedImage) reservation = await reserveUpload(req.user.id, kind);
+        await new Promise((resolve, reject) => upload(req, res, error => error ? reject(error) : resolve()));
+        return await handler(req, res);
+      } finally {
+        if (reservation) await rows('DELETE FROM upload_reservations WHERE id = ?', [reservation]).catch(error => console.error('Upload reservation cleanup failed:', error.code));
+      }
+    };
+    // The success response follows reservation release, so an immediate next
+    // upload cannot race a stale reservation from the completed request.
+    perform().then(result => res.status(201).json(result)).catch(next);
   };
 }
 

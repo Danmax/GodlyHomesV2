@@ -10,7 +10,7 @@ import { memberAccess, userAdmin } from './users.js';
 import { rows, transaction, json } from './db.js';
 import { accountRoutes } from './account.js';
 import { createMailer } from './email.js';
-import { createNewsletterClient, syncNewsletterSubscriber } from './newsletter.js';
+import { createNewsletterClient, requestNewsletterConfirmation, confirmNewsletter } from './newsletter.js';
 import { config } from './config.js';
 import { authenticate, cookieOptions, digest, hashPassword, verifyPassword, requireAdmin, requireStaff } from './auth.js';
 import { episodeSchema, validateAssets } from './validation.js';
@@ -144,14 +144,15 @@ export async function createApp({ serveStatic = true, stripeClient, commerceSett
     res.type('audio/mpeg').set('Cache-Control', 'private, no-cache, max-age=0, must-revalidate').sendFile(file, { cacheControl: false });
   }));
   app.post('/api/subscribe', rateLimit({ windowMs: 3600000, limit: 10, legacyHeaders: false }), asyncRoute(async (req, res) => {
-    const { email, consent } = z.object({ email: z.email().max(254), consent: z.literal(true) }).parse(req.body);
-    const normalized = email.toLowerCase().trim();
-    await rows('INSERT IGNORE INTO subscribers (email) VALUES (?)', [normalized]);
-    // Consent is durable before attempting the external service. Delivery errors
-    // leave it queued for the running API to retry rather than losing a signup.
-    try { await syncNewsletterSubscriber(normalized, newsletter); }
-    catch (error) { console.error('Newsletter sync unavailable:', error.code || 'database_error'); }
-    res.json({ message: 'You’re on the list. Thank you for joining us.' });
+    const { email } = z.object({ email: z.string().trim().toLowerCase().pipe(z.email().max(254)), consent: z.literal(true) }).parse(req.body);
+    if (!mailer.ready) throw failure('Newsletter confirmation email is unavailable. Please try again later.', 503);
+    await requestNewsletterConfirmation(email, mailer);
+    res.json({ message: 'Thanks. If this address needs confirmation, we’ll email a link. Check your inbox and spam folder.' });
+  }));
+  app.post('/api/newsletter/confirm', rateLimit({ windowMs: 15 * 60000, limit: 30, legacyHeaders: false }), asyncRoute(async (req, res) => {
+    const { token } = z.object({ token: z.string().regex(/^[a-f0-9]{64}$/) }).parse(req.body);
+    await confirmNewsletter(token, newsletter);
+    res.json({ message: 'Your newsletter signup is confirmed. Thank you for joining us.' });
   }));
 
   app.use('/api/worker', workerMedia);
@@ -256,7 +257,7 @@ export async function createApp({ serveStatic = true, stripeClient, commerceSett
       const duration = await probe(stored);
       const filename = file.originalname.replace(/[\u0000-\u001f]/g, '').slice(0, 200) || 'Recording';
       await rows('INSERT INTO assets (id, user_id, filename, storage_key, mime, bytes, duration) VALUES (?, ?, ?, ?, ?, ?, ?)', [id, req.user.id, filename, storageKey, 'audio/flac', size, duration]);
-      res.status(201).json({ id, name: filename, duration, bytes: size, url: `/api/assets/${id}/audio` });
+      return { id, name: filename, duration, bytes: size, url: `/api/assets/${id}/audio` };
     } catch (error) {
       const oversized = stored && await stat(stored).then(details => details.size > config.maxProcessedBytes).catch(() => false);
       if (stored) await unlink(stored).catch(() => {});
