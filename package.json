@@ -19,7 +19,8 @@
     "test:integration": "node test/integration.js",
     "test:pages": "node test/public-pages.js",
     "email:check": "node --env-file-if-exists=.env server/check-email.js",
-    "email:test": "node --env-file-if-exists=.env server/test-email.js"
+    "email:test": "node --env-file-if-exists=.env server/test-email.js",
+    "build:deploy": "npm run db:migrate && npm run build"
   },
   "dependencies": {
     "express": "5.1.0",
