@@ -72,7 +72,7 @@ export async function createApp({ serveStatic = true, stripeClient, commerceSett
     fontSrc: ["'self'", 'https://fonts.gstatic.com'], imgSrc: ["'self'", 'data:', 'https:'],
     mediaSrc: ["'self'", 'blob:'], connectSrc: ["'self'"], upgradeInsecureRequests: config.production ? [] : null,
   } } }));
-  const commerce = createCommerce({ stripeClient, settings: commerceSettings });
+  const commerce = createCommerce({ stripeClient, settings: commerceSettings, mailer });
   // Signature verification requires the untouched body. Stripe cannot send a
   // browser Origin or studio CSRF token; only this signed endpoint bypasses them.
   app.post('/api/stripe/webhook', express.raw({ type: 'application/json', limit: '1mb' }), commerce.webhook);

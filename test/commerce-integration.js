@@ -42,7 +42,9 @@ export async function testCommerce({ createApp, rows, origin, password }) {
       list: async params => ({ data: [...sessions.values()].filter(session => session.payment_intent === params.payment_intent), has_more: false }),
     } },
   };
-  const app = await createApp({ stripeClient, commerceSettings: { webhookSecret, automaticTax: false } });
+  const shipmentEmails = [];
+  let failShipmentEmail = false;
+  const app = await createApp({ stripeClient, commerceSettings: { webhookSecret, automaticTax: false }, mailer: { ready: true, send: async message => { if (failShipmentEmail) throw new Error('Simulated mail outage'); shipmentEmails.push(message); } } });
   const admin = request.agent(app), publisher = request.agent(app);
   const login = await admin.post('/api/auth/login').set('Origin', origin).send({ email: 'test@godlyhomes.com', password });
   const other = await publisher.post('/api/auth/login').set('Origin', origin).send({ email: 'other@godlyhomes.com', password });
@@ -123,7 +125,7 @@ export async function testCommerce({ createApp, rows, origin, password }) {
   assert.deepEqual(concurrent.map(response => response.status), [200, 200]);
   assert.equal((await rows('SELECT event_id FROM stripe_webhook_events WHERE event_id = ?', [eventId])).length, 1);
   let publicOrder = (await publicStatus()).body;
-  assert.equal(publicOrder.paymentStatus, 'paid'); assert.equal(publicOrder.email, undefined); assert.equal(publicOrder.shipping, undefined); assert.equal(publicOrder.testMode, true);
+  assert.equal(publicOrder.fulfillmentStatus, 'ready'); assert.equal(publicOrder.paymentStatus, 'paid'); assert.equal(publicOrder.email, undefined); assert.equal(publicOrder.shipping, undefined); assert.equal(publicOrder.testMode, true);
   assert.equal((await notify('checkout.session.expired')).status, 200);
   assert.equal((await publicStatus()).body.paymentStatus, 'paid');
   order = (await admin.get('/api/admin/commerce/orders')).body.items.find(order => order.id === orderId);
@@ -153,6 +155,7 @@ export async function testCommerce({ createApp, rows, origin, password }) {
   assert.equal((await physicalNotify('checkout.session.expired')).status, 200);
   assert.equal((await rows('SELECT payment_status FROM store_orders WHERE id = ?', [physicalSession.metadata.orderId]))[0].payment_status, 'expired');
   physicalSession.status = 'complete'; physicalSession.payment_status = 'paid'; physicalSession.amount_total = 1700;
+  physicalSession.customer_details = { email: 'shipping-buyer@example.com', name: 'A buyer' };
   physicalSession.collected_information = { shipping_details: { name: 'A buyer', address: { line1: '1 Test Street', city: 'Test City', country: 'US' } } };
   const physicalPayload = JSON.stringify({ id: `evt_${randomUUID()}`, type: 'checkout.session.completed', data: { object: { id: physicalSessionId } } });
   assert.equal((await request(app).post('/api/stripe/webhook').set('Content-Type', 'application/json').set('Stripe-Signature', sdk.webhooks.generateTestHeaderString({ payload: physicalPayload, secret: webhookSecret })).send(physicalPayload)).status, 200);
@@ -166,7 +169,7 @@ export async function testCommerce({ createApp, rows, origin, password }) {
     return request(app).post('/api/stripe/webhook').set('Content-Type', 'application/json').set('Stripe-Signature', sdk.webhooks.generateTestHeaderString({ payload, secret: webhookSecret })).send(payload);
   };
   const readPhysical = async () => (await admin.get('/api/admin/commerce/orders')).body.items.find(order => order.id === physicalOrder.id);
-  const fulfillPhysical = async () => mutate('patch', `/api/admin/commerce/orders/${physicalOrder.id}`).send({ version: (await readPhysical()).version, fulfillmentStatus: 'fulfilled', notes: '' });
+  const fulfillPhysical = async () => mutate('patch', `/api/admin/commerce/orders/${physicalOrder.id}`).send({ version: (await readPhysical()).version, fulfillmentStatus: 'shipped', trackingNumber: '9400111899223856928499', shippingCarrier: 'USPS', notes: '' });
   payment.refunds = [{ status: 'pending' }];
   const pendingRefundEvent = `evt_${randomUUID()}`;
   assert.equal((await notifyReview('refund.created', pendingRefundEvent)).status, 200);
@@ -199,9 +202,39 @@ export async function testCommerce({ createApp, rows, origin, password }) {
   const retrieveIntent = stripeClient.paymentIntents.retrieve;
   stripeClient.paymentIntents.retrieve = async () => { throw { type: 'StripePermissionError' }; };
   assert.equal((await fulfillPhysical()).status, 502);
-  assert.equal((await readPhysical()).fulfillmentStatus, 'unfulfilled');
+  assert.equal((await readPhysical()).fulfillmentStatus, 'ready');
   stripeClient.paymentIntents.retrieve = retrieveIntent;
-  assert.equal((await fulfillPhysical()).status, 200);
+  const patchPhysical = async body => mutate('patch', `/api/admin/commerce/orders/${physicalOrder.id}`).send({ version: (await readPhysical()).version, notes: '', ...body });
+  assert.equal((await patchPhysical({ fulfillmentStatus: 'fulfilled' })).status, 409);
+  assert.equal((await patchPhysical({ fulfillmentStatus: 'shipped' })).status, 400);
+  failShipmentEmail = true;
+  const shipped = await fulfillPhysical();
+  assert.equal(shipped.status, 200); assert.match(shipped.body.warning, /email delivery/i);
+  assert.equal((await readPhysical()).fulfillmentStatus, 'shipped');
+  assert.ok((await readPhysical()).shippedAt);
+  assert.equal(shipmentEmails.length, 0);
+  failShipmentEmail = false;
+  await rows('UPDATE store_orders SET shipment_email_claimed_at = DATE_SUB(UTC_TIMESTAMP(), INTERVAL 6 MINUTE) WHERE id = ?', [physicalOrder.id]);
+  const emailRoute = `/api/admin/commerce/orders/${physicalOrder.id}/shipment-email`;
+  const retries = await Promise.all([mutate('post', emailRoute).send({}), mutate('post', emailRoute).send({})]);
+  assert.deepEqual(retries.map(result => result.status), [200, 200]);
+  assert.equal(shipmentEmails.length, 1);
+  assert.equal(shipmentEmails[0].to, 'shipping-buyer@example.com');
+  assert.match(shipmentEmails[0].text, /9400111899223856928499/);
+  assert.match(shipmentEmails[0].text, /USPS/);
+  assert.ok((await readPhysical()).shipmentEmailSentAt);
+  assert.equal((await fulfillPhysical()).status, 200); // saving again must not resend
+  assert.equal(shipmentEmails.length, 1);
+  const tracking = { trackingNumber: '9400111899223856928499', shippingCarrier: 'USPS' };
+  assert.equal((await patchPhysical({ fulfillmentStatus: 'fulfilled', ...tracking })).status, 200);
+  assert.ok((await readPhysical()).deliveredAt);
+  assert.equal((await patchPhysical({ fulfillmentStatus: 'shipped', ...tracking })).status, 409);
+  assert.equal((await patchPhysical({ fulfillmentStatus: 'fulfilled', ...tracking, trackingNumber: 'changed' })).status, 409);
+  const publicPhysicalUrl = new URL(calls.find(call => call.params.metadata.orderId === physicalOrder.id).params.success_url);
+  const physicalStatus = await request(app).get(`/api/store/orders/${physicalOrder.id}?token=${publicPhysicalUrl.searchParams.get('token')}`);
+  assert.equal(physicalStatus.body.fulfillmentStatus, 'fulfilled');
+  assert.equal(physicalStatus.body.trackingNumber, tracking.trackingNumber);
+  assert.equal(physicalStatus.body.email, undefined);
   await rows('UPDATE store_orders SET stripe_payment_intent_id = NULL WHERE id = ?', [physicalOrder.id]);
   assert.equal((await notifyReview('refund.updated')).status, 200);
   assert.equal((await mutate('post', `/api/admin/commerce/orders/${physicalOrder.id}/sync`).send({})).status, 200);
@@ -272,9 +305,9 @@ export async function testCommerce({ createApp, rows, origin, password }) {
       const details = page.locator('details.commerce-order').filter({ hasText: 'Family journal' }).first();
       await details.locator('summary').click();
       await details.getByLabel('Fulfillment notes').fill('Digital journal delivered.');
-      await details.getByLabel('Resource delivered or package shipped').check();
+      await details.getByLabel('Fulfillment status').selectOption('fulfilled');
       await details.getByRole('button', { name: 'Save fulfillment' }).click();
-      await page.waitForFunction(() => [...document.querySelectorAll('.commerce-order summary')].some(el => el.textContent.includes('fulfilled')));
+      await page.waitForFunction(() => [...document.querySelectorAll('.commerce-order summary')].some(el => el.textContent.includes('Completed')));
       await page.screenshot({ path: 'test-results/store-orders-mobile.png', fullPage: true });
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
       assert.deepEqual(errors, []);

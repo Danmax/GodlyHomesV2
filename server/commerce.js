@@ -53,7 +53,7 @@ function connectionFailure(error) {
   return { code: 'connection_failed', message: 'Stripe could not be reached or checked. Retry, and check the server connection and Stripe account configuration if it continues.' };
 }
 
-export function createCommerce({ stripeClient, settings = commerceSettings() } = {}) {
+export function createCommerce({ stripeClient, settings = commerceSettings(), mailer } = {}) {
   const stripe = stripeClient || (settings.secretKey ? new Stripe(settings.secretKey, { maxNetworkRetries: 2, timeout: 20000 }) : null);
   const requireStripe = () => { if (!stripe) throw fail('Stripe is not connected. Ask the administrator to configure the store.', 503); return stripe; };
   const requireCheckout = () => { requireStripe(); if (!settings.webhookSecret) throw fail('Stripe payment confirmation is not configured. Please contact the store.', 503); };
@@ -100,8 +100,8 @@ export function createCommerce({ stripeClient, settings = commerceSettings() } =
     if (session.metadata?.source !== 'godly_homes' || session.metadata.orderId !== order.id || session.client_reference_id !== order.id || session.currency !== order.currency || Boolean(session.livemode) !== Boolean(order.livemode)) throw fail('Stripe session does not match this order.', 409);
     const payment = session.status === 'complete' && ['paid', 'no_payment_required'].includes(session.payment_status) ? 'paid' : session.status === 'expired' ? 'expired' : 'pending';
     const review = payment === 'paid' ? await reviewPayment(session) : { refunded: Number(order.amount_refunded), refund: order.refund_status, dispute: order.dispute_status };
-    await rows(`UPDATE store_orders SET stripe_payment_intent_id = ?, amount_refunded = ?, refund_status = ?, dispute_status = ?, payment_status = ?, payment_checked_at = UTC_TIMESTAMP(), version = version + 1 WHERE id = ?`,
-      [stripeId(session.payment_intent), review.refunded, review.refund, review.dispute, payment, order.id], connection);
+    await rows(`UPDATE store_orders SET stripe_payment_intent_id = ?, amount_refunded = ?, refund_status = ?, dispute_status = ?, payment_status = ?, fulfillment_status = CASE WHEN fulfillment_status IN ('unfulfilled','ready') THEN IF(? = 'paid', 'ready', 'unfulfilled') ELSE fulfillment_status END, payment_checked_at = UTC_TIMESTAMP(), version = version + 1 WHERE id = ?`,
+      [stripeId(session.payment_intent), review.refunded, review.refund, review.dispute, payment, payment, order.id], connection);
     if (event) await rows('INSERT INTO stripe_webhook_events (event_id, event_type) VALUES (?, ?)', [event.id, event.type], connection);
     return { ...order, payment_status: payment, amount_refunded: review.refunded, refund_status: review.refund, dispute_status: review.dispute, version: order.version + 1 };
   });
@@ -160,7 +160,7 @@ export function createCommerce({ stripeClient, settings = commerceSettings() } =
     const id = idSchema.parse(req.params.id), token = z.string().regex(/^[a-f0-9]{64}$/).parse(req.query.token);
     const [order] = await rows('SELECT * FROM store_orders WHERE id = ? AND token_hash = ?', [id, digest(token)]);
     if (!order) throw fail('Order not found.', 404);
-    res.json({ id: order.id, item: json(order.item_snapshot), paymentStatus: order.payment_status, fulfillmentStatus: order.fulfillment_status, amountTotal: Number(order.amount_total), amountRefunded: Number(order.amount_refunded), refundStatus: order.refund_status, disputeStatus: order.dispute_status, currency: order.currency, testMode: !order.livemode });
+    res.json({ id: order.id, item: json(order.item_snapshot), paymentStatus: order.payment_status, fulfillmentStatus: order.fulfillment_status, trackingNumber: order.tracking_number, shippingCarrier: order.shipping_carrier, shippedAt: order.shipped_at, deliveredAt: order.delivered_at, amountTotal: Number(order.amount_total), amountRefunded: Number(order.amount_refunded), refundStatus: order.refund_status, disputeStatus: order.dispute_status, currency: order.currency, testMode: !order.livemode });
   }));
 
   adminRoutes.use(requireAdmin);
@@ -253,28 +253,61 @@ export function createCommerce({ stripeClient, settings = commerceSettings() } =
   adminRoutes.get('/orders', route(async (req, res) => {
     const page = z.coerce.number().int().min(1).max(100000).parse(req.query.page || 1);
     const orders = await rows(`SELECT * FROM store_orders ORDER BY created_at DESC, id DESC LIMIT 26 OFFSET ${(page - 1) * 25}`);
-    res.json({ items: orders.slice(0, 25).map(order => ({ id: order.id, item: json(order.item_snapshot), paymentStatus: order.payment_status, fulfillmentStatus: order.fulfillment_status,
+    res.json({ items: orders.slice(0, 25).map(order => ({ id: order.id, item: json(order.item_snapshot), paymentStatus: order.payment_status, fulfillmentStatus: order.fulfillment_status, trackingNumber: order.tracking_number, shippingCarrier: order.shipping_carrier, shippedAt: order.shipped_at, deliveredAt: order.delivered_at,
       amountTotal: Number(order.amount_total), currency: order.currency, email: order.customer_email, name: order.customer_name, shipping: order.shipping ? json(order.shipping) : null,
       sessionId: order.stripe_session_id, testMode: !order.livemode, notes: order.notes, version: order.version, createdAt: order.created_at,
       amountRefunded: Number(order.amount_refunded), refundStatus: order.refund_status, disputeStatus: order.dispute_status, paymentCheckedAt: order.payment_checked_at,
-      canFulfill: canFulfill(order) })), hasMore: orders.length > 25 });
+      shipmentEmailSentAt: order.shipment_email_sent_at, canFulfill: canFulfill(order) })), hasMore: orders.length > 25 });
+  }));
+  // Claim and commit before sending so concurrent retries cannot send twice.
+  const sendShipment = async id => {
+    const [order] = await rows('SELECT * FROM store_orders WHERE id = ?', [id]);
+    if (!order?.shipped_at) throw fail('This order has not shipped.', 409);
+    if (order.shipment_email_sent_at) return { message: 'Shipment confirmation already sent.' };
+    if (!mailer?.ready || !order.customer_email) return { warning: 'Shipment saved. Email is unavailable; configure email and retry the shipment confirmation.' };
+    const claim = await rows(`UPDATE store_orders SET shipment_email_claimed_at = UTC_TIMESTAMP()
+      WHERE id = ? AND shipment_email_sent_at IS NULL AND (shipment_email_claimed_at IS NULL OR shipment_email_claimed_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL 5 MINUTE))`, [id]);
+    if (!claim.affectedRows) return { warning: 'Shipment saved. Email delivery is in progress; refresh or retry in five minutes.' };
+    try {
+      await mailer.send({ to: order.customer_email, idempotencyKey: `order-shipment/${id}`,
+        subject: 'Your Godly Homes order has shipped',
+        text: `Your order is on its way!\n\n${json(order.item_snapshot).title}\nOrder reference: ${id}\nCarrier: ${order.shipping_carrier || 'See tracking number'}\nTracking number: ${order.tracking_number}\n\nUse this tracking number on the carrier’s website to follow your delivery.\n\nThank you for shopping with Godly Homes.` });
+      await rows('UPDATE store_orders SET shipment_email_sent_at = UTC_TIMESTAMP() WHERE id = ?', [id]);
+      return { message: 'Shipment confirmation sent to the buyer.' };
+    } catch {
+      // Keep the lease after uncertain sends; provider idempotency protects retries.
+      return { warning: 'Shipment saved, but email delivery could not be confirmed. Retry the shipment email in five minutes.' };
+    }
+  };
+  adminRoutes.post('/orders/:id/shipment-email', route(async (req, res) => {
+    res.json(await sendShipment(idSchema.parse(req.params.id)));
   }));
   adminRoutes.patch('/orders/:id', route(async (req, res) => {
     const id = idSchema.parse(req.params.id);
-    const { version, fulfillmentStatus, notes } = z.object({ version: z.number().int().positive(), fulfillmentStatus: z.enum(['unfulfilled', 'fulfilled']), notes: z.string().max(4000) }).parse(req.body);
+    const { version, fulfillmentStatus, notes, trackingNumber, shippingCarrier } = z.object({
+      version: z.number().int().positive(), fulfillmentStatus: z.enum(['unfulfilled', 'ready', 'shipped', 'fulfilled']), notes: z.string().max(4000),
+      trackingNumber: z.string().trim().max(200).regex(/^[^\r\n]*$/).default(''), shippingCarrier: z.string().trim().max(100).regex(/^[^\r\n]*$/).default(''),
+    }).parse(req.body);
     const [order] = await rows('SELECT * FROM store_orders WHERE id = ?', [id]);
     if (!order || order.version !== version) throw fail('This order changed. Refresh it before saving.', 409);
+    const changed = fulfillmentStatus !== order.fulfillment_status, physical = json(order.item_snapshot).kind === 'physical';
     let expectedVersion = version;
-    if (fulfillmentStatus === 'fulfilled' && order.fulfillment_status !== 'fulfilled') {
+    if (changed) {
       if (order.payment_status !== 'paid') throw fail('Only paid orders can be fulfilled.', 409);
       const reviewed = await syncReview(id, version);
       expectedVersion = reviewed.version;
       if (!canFulfill(reviewed)) throw fail('This order has a refund or dispute. Do not fulfill it. Refresh the order and review it in Stripe.', 409);
+      const allowed = order.fulfillment_status === 'fulfilled' ? [] : order.fulfillment_status === 'shipped' ? ['fulfilled'] : physical ? ['shipped'] : ['fulfilled'];
+      if (!allowed.includes(fulfillmentStatus)) throw fail('Physical orders must be shipped before delivery is completed. Completed fulfillment cannot be reversed.', 409);
     }
-    const result = await rows(`UPDATE store_orders SET fulfillment_status = ?, notes = ?, version = version + 1
-      WHERE id = ? AND version = ?`, [fulfillmentStatus, notes, id, expectedVersion]);
-    if (!result.affectedRows) throw fail('Reload this order before saving. Only paid orders can be marked fulfilled.', 409);
-    res.json({ ok: true });
+    if (physical && fulfillmentStatus === 'shipped' && !trackingNumber) throw fail('Enter a tracking number before marking the order shipped.');
+    if (order.shipped_at && (trackingNumber !== order.tracking_number || shippingCarrier !== order.shipping_carrier)) throw fail('Tracking details for a shipped order cannot be changed.', 409);
+    const result = await rows(`UPDATE store_orders SET fulfillment_status = ?, notes = ?, tracking_number = ?, shipping_carrier = ?,
+      shipped_at = IF(? = 'shipped', COALESCE(shipped_at, UTC_TIMESTAMP()), shipped_at),
+      delivered_at = IF(? = 'fulfilled', COALESCE(delivered_at, UTC_TIMESTAMP()), delivered_at), version = version + 1
+      WHERE id = ? AND version = ?`, [fulfillmentStatus, notes, trackingNumber, shippingCarrier, fulfillmentStatus, fulfillmentStatus, id, expectedVersion]);
+    if (!result.affectedRows) throw fail('Reload this order before saving.', 409);
+    res.json({ ok: true, ...(changed && fulfillmentStatus === 'shipped' ? await sendShipment(id) : {}) });
   }));
   adminRoutes.post('/orders/:id/sync', route(async (req, res) => {
     await syncReview(idSchema.parse(req.params.id));
@@ -325,8 +358,8 @@ export function createCommerce({ stripeClient, settings = commerceSettings() } =
         else if (event.type === 'checkout.session.async_payment_failed') state = 'failed';
       }
       const shipping = session.collected_information?.shipping_details || session.shipping_details || null;
-      await rows(`UPDATE store_orders SET stripe_session_id = ?, stripe_payment_intent_id = ?, payment_status = ?, amount_total = ?, customer_email = ?, customer_name = ?, shipping = ?, version = version + 1 WHERE id = ?`,
-        [session.id, stripeId(session.payment_intent), state, session.amount_total ?? order.amount_total, session.customer_details?.email || null, session.customer_details?.name || null, shipping ? JSON.stringify(shipping) : null, order.id], connection);
+      await rows(`UPDATE store_orders SET stripe_session_id = ?, stripe_payment_intent_id = ?, payment_status = ?, fulfillment_status = CASE WHEN fulfillment_status IN ('unfulfilled','ready') THEN IF(? = 'paid', 'ready', 'unfulfilled') ELSE fulfillment_status END, amount_total = ?, customer_email = ?, customer_name = ?, shipping = ?, version = version + 1 WHERE id = ?`,
+        [session.id, stripeId(session.payment_intent), state, state, session.amount_total ?? order.amount_total, session.customer_details?.email || null, session.customer_details?.name || null, shipping ? JSON.stringify(shipping) : null, order.id], connection);
       await rows('INSERT INTO stripe_webhook_events (event_id, event_type) VALUES (?, ?)', [event.id, event.type], connection);
     });
     res.json({ received: true });
