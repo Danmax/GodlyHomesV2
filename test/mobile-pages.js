@@ -56,10 +56,10 @@ export async function testMobilePages(browser, origin) {
       const smallButtons = [...document.querySelectorAll('.btn,.tabs button,.admin-nav button,.newsletter-theme')].filter(el => el.getClientRects().length && el.getBoundingClientRect().height < 44).length;
       return { overflow: document.documentElement.scrollWidth > innerWidth, outside, smallFields, smallButtons };
     });
-    if (problems.overflow || problems.outside.length || (width <= 600 && (problems.smallFields || problems.smallButtons))) failures.push({ label, width, ...problems });
+    if (problems.overflow || problems.outside.length || (width <= 1024 && (problems.smallFields || problems.smallButtons))) failures.push({ label, width, ...problems });
   }
   try {
-    for (const width of [320, 390, 768, 1024, 1440]) {
+    for (const width of [320, 390, 600, 768, 820, 1024, 1440]) {
       console.log(`Reviewing populated screens at ${width}px…`);
       await page.setViewportSize({ width, height: 900 });
       signedIn = false;

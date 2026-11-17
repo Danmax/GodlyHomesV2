@@ -106,7 +106,7 @@ export async function testTimelineBrowser(browser, origin) {
       assert.ok(episode.arrangement.segments.some(clip => clip.role === role));
     }
     await page.getByLabel('Timeline zoom', { exact: true }).selectOption('fit');
-    for (const width of [320, 390, 768, 1440]) {
+    for (const width of [320, 390, 600, 768, 820, 1024, 1440]) {
       await page.setViewportSize({ width, height: 1200 });
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, `Timeline stays inside ${width}px viewport`);
     }

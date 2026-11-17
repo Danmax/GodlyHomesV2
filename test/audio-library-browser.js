@@ -6,7 +6,7 @@ import { arrangementSchema } from '../server/validation.js';
 import { libraryClipSchema } from '../server/audio-library.js';
 
 export async function testAudioLibraryBrowser(browser, origin) {
-  const context = await browser.newContext({ reducedMotion: 'reduce' }), page = await context.newPage(), errors = [], unexpected = [];
+  const context = await browser.newContext({ reducedMotion: 'reduce', hasTouch: true }), page = await context.newPage(), errors = [], unexpected = [];
   page.on('pageerror', error => errors.push(error.message));
   const wav = Buffer.alloc(44 + 24000 * 10 * 2);
   wav.write('RIFF'); wav.writeUInt32LE(wav.length - 8, 4); wav.write('WAVEfmt ', 8); wav.writeUInt32LE(16, 16);
@@ -44,7 +44,10 @@ export async function testAudioLibraryBrowser(browser, origin) {
     await page.setViewportSize({ width: 1440, height: 1100 }); await page.goto(`${origin}/studio`); await openEpisode('Episode one');
     assert.deepEqual(await page.getByLabel('Episode recordings', { exact: true }).locator('option').allTextContents(), ['Choose a recording or music track', 'First episode recording']);
     assert.equal(await page.locator('.timeline-source').count(), 1);
-    await page.getByRole('button', { name: 'Clip First episode recording', exact: true }).click();
+    await page.getByRole('button', { name: 'Clip First episode recording', exact: true }).tap();
+    await page.getByRole('button', { name: 'Mute Program', exact: true }).tap();
+    assert.equal(await page.getByRole('button', { name: 'Mute Program', exact: true }).getAttribute('aria-pressed'), 'true');
+    await page.getByRole('button', { name: 'Mute Program', exact: true }).tap();
     await page.getByLabel('Trim start (seconds)', { exact: true }).fill('1.25'); await page.getByLabel('Trim end (seconds)', { exact: true }).fill('4.75');
     await page.getByLabel('Episode section', { exact: true }).selectOption('intro');
     await page.getByLabel('Fade in (seconds)', { exact: true }).fill('0.2'); await page.getByLabel('Fade out (seconds)', { exact: true }).fill('0.3');
@@ -62,7 +65,7 @@ export async function testAudioLibraryBrowser(browser, origin) {
     await page.getByRole('button', { name: /^Saved library/ }).click();
     await page.getByLabel('Timeline library folder', { exact: true }).selectOption(folders[0].id);
     await page.getByLabel('Timeline playhead (seconds)', { exact: true }).fill('8');
-    await page.getByRole('button', { name: 'Add Reusable welcome at playhead', exact: true }).click(); await saved();
+    await page.getByRole('button', { name: 'Add Reusable welcome at playhead', exact: true }).tap(); await saved();
     let copies = episodes[1].arrangement.segments.filter(clip => clip.assetId === assets[0].id);
     assert.equal(copies.length, 1); assert.equal(copies[0].position, 8); assert.equal(copies[0].start, 1.25); assert.equal(copies[0].end, 4.75); assert.equal(copies[0].gain, .4);
     assert.deepEqual(await page.getByLabel('Episode recordings', { exact: true }).locator('option').allTextContents(), ['Choose a recording or music track', 'Second episode recording'], 'Using a saved edit keeps its full source recording with its original episode');
@@ -89,8 +92,9 @@ export async function testAudioLibraryBrowser(browser, origin) {
     assert.equal(clips.length, 0); assert.equal(episodes[1].arrangement.segments.length, 3); assert.deepEqual(episodes[0].arrangement, firstArrangement);
     await page.reload(); await openEpisode('Episode two'); assert.equal(await page.locator('.timeline-clip').count(), 3);
     await page.getByRole('button', { name: 'Clip This episode only', exact: true }).click();
-    for (const width of [320, 390, 768, 1440]) {
+    for (const width of [320, 390, 600, 768, 820, 1024, 1440]) {
       await page.setViewportSize({ width, height: 1100 }); assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, `Folder library fits ${width}px`);
+      assert.equal(await page.locator('.timeline-track-controls button').evaluateAll(buttons => buttons.every(button => { const bounds = button.getBoundingClientRect(); return bounds.width >= 44 && bounds.height >= 44; })), true, `Touch track controls are at least 44px at ${width}px`);
     }
     await page.locator('.reusable-library').scrollIntoViewIfNeeded(); await page.screenshot({ path: 'test-results/audio-library-desktop.png', fullPage: true });
     await page.setViewportSize({ width: 390, height: 844 }); await page.locator('.reusable-library').scrollIntoViewIfNeeded(); await page.screenshot({ path: 'test-results/audio-library-mobile.png', fullPage: true });

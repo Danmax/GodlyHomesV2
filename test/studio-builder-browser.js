@@ -87,7 +87,7 @@ export async function testStudioBuilderBrowser(browser, origin) {
     assert.equal(episode.arrangement.segments.length, count, 'Generating an intro does not add it before review');
     await page.getByRole('button', { name: 'Add this intro to episode', exact: true }).click();
     await saved(); assert.equal(episode.arrangement.segments[0].assetId, generated.id);
-    for (const width of [320, 390, 768, 1440]) {
+    for (const width of [320, 390, 600, 768, 820, 1024, 1440]) {
       await page.setViewportSize({ width, height: 900 });
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, `Studio tools fit ${width}px`);
     }
