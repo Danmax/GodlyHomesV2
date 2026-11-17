@@ -41,7 +41,7 @@ export async function testStudioBuilderBrowser(browser, origin) {
     await page.getByLabel('Add as', { exact: true }).selectOption('intro');
     await page.locator('input[type=file][multiple]').setInputFiles({ name: 'Intro.wav', mimeType: 'audio/wav', buffer: Buffer.from('isolated-upload-fixture') });
     await page.getByRole('status').filter({ hasText: '1 file uploaded' }).waitFor();
-    assert.equal(await page.locator('.segment-name').count(), 2);
+    assert.equal(await page.locator('.timeline-clip').count(), 2);
     assert.equal(episode.arrangement.segments[0].role, 'intro');
     await page.getByLabel('Recording name', { exact: true }).fill('Welcome music');
     await page.getByRole('button', { name: 'Rename recording', exact: true }).click();

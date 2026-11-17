@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { cutRange, clipRoles, suggestClips } from '../shared/podcast-editing.js';
+import { cutRange, clipRoles, roleLabels, suggestClips } from '../shared/podcast-editing.js';
 import { api } from './api.js';
 
-export default function ClipEditor({ segment: clip, asset, onChange, onSplit, onCut, onBusy, disabled, maxClips = 200 }) {
+export default function ClipEditor({ segment: clip, asset, tracks, onChange, onSplit, onCut, onBusy, disabled, maxClips = 200 }) {
   const player = useRef();
   const [cursor, setCursor] = useState(clip.start), [from, setFrom] = useState(clip.start), [to, setTo] = useState(clip.end), [error, setError] = useState('');
   const [peaks, setPeaks] = useState([]);
@@ -21,7 +21,7 @@ export default function ClipEditor({ segment: clip, asset, onChange, onSplit, on
     const abort = new AbortController();
     let context;
     setPeaks([]);
-    if (asset?.bytes < 20 * 1024 * 1024) fetch(asset.url, { signal: abort.signal }).then(response => response.arrayBuffer()).then(async data => {
+    if (asset?.bytes < 20 * 1024 * 1024 && asset.duration <= 600) fetch(asset.url, { signal: abort.signal }).then(response => response.arrayBuffer()).then(async data => {
       if (abort.signal.aborted) return;
       context = new AudioContext();
       const buffer = await context.decodeAudioData(data), samples = buffer.getChannelData(0), size = Math.ceil(samples.length / 100);
@@ -35,10 +35,11 @@ export default function ClipEditor({ segment: clip, asset, onChange, onSplit, on
   const updateTrim = (key, value) => {
     if (!Number.isFinite(value)) return;
     const next = { ...clip, [key]: value };
-    if (next.start >= 0 && next.end <= (asset?.duration || clip.end) && next.end - next.start >= .05) onChange(next);
+    if (next.start >= 0 && next.end <= (asset?.duration || clip.end) && next.end - next.start >= .05 && (next.position || 0) + next.end - next.start <= 7200) onChange(next);
   };
   const splitValid = cursor >= clip.start + .05 && cursor <= clip.end - .05;
-  return <section className="card clip-editor"><h2>Refine this clip</h2><div className="fields"><label>Clip name<input className="field" value={clip.name} maxLength={200} onChange={e => onChange({ ...clip, name: e.target.value })} /></label><label>Episode section<select className="field" value={clip.role || 'segment'} onChange={e => onChange({ ...clip, role: e.target.value })}>{clipRoles.map(role => <option key={role} value={role}>{role[0].toUpperCase() + role.slice(1)}</option>)}</select></label>
+  return <section className="card clip-editor"><h2>Refine this clip</h2><fieldset className="clip-editor-fields fields" disabled={disabled}><label>Clip name<input className="field" value={clip.name} maxLength={200} onChange={e => onChange({ ...clip, name: e.target.value })} /></label><label>Episode section<select className="field" value={clip.role || 'segment'} onChange={e => onChange({ ...clip, role: e.target.value })}>{clipRoles.map(role => <option key={role} value={role}>{roleLabels[role]}</option>)}</select></label>
+    {tracks && <div className="edit-grid"><label>Timeline start (seconds)<input className="field" type="number" min="0" max={7200 - (clip.end - clip.start)} step=".01" value={clip.position || 0} onChange={e => { const value = Number(e.target.value); if (value >= 0 && value + clip.end - clip.start <= 7200) onChange({ ...clip, position: value }); }} /></label><label>Audio track<select className="field" value={clip.trackId} onChange={e => onChange({ ...clip, trackId: e.target.value })}>{tracks.map(track => <option key={track.id} value={track.id}>{track.name}</option>)}</select></label></div>}
     {peaks.length > 0 && <div className="waveform-editor"><svg className="wave" viewBox={`${clip.start / asset.duration * 400} 0 ${(clip.end - clip.start) / asset.duration * 400} 100`} preserveAspectRatio="none" aria-hidden="true">{peaks.map((peak, index) => <line key={index} x1={index * 4 + 2} x2={index * 4 + 2} y1={50 - Math.max(1, peak * 44)} y2={50 + Math.max(1, peak * 44)} stroke="#76866b" strokeWidth="2" />)}<line x1={cursor / asset.duration * 400} x2={cursor / asset.duration * 400} y1="0" y2="100" stroke="#b9705a" strokeWidth="1" vectorEffect="non-scaling-stroke" /></svg><input className="wave-seek" type="range" aria-label="Seek in waveform" min={clip.start} max={clip.end} step="0.01" value={Math.min(clip.end, Math.max(clip.start, cursor))} onChange={e => seek(Number(e.target.value))} /></div>}
     <audio ref={player} controls src={asset?.url} aria-label="Clip preview" onLoadedMetadata={() => { player.current.currentTime = clip.start; }} onPlay={() => { if (player.current.currentTime < clip.start || player.current.currentTime >= clip.end) player.current.currentTime = clip.start; }} onTimeUpdate={() => { const audio = player.current; setCursor(audio.currentTime); if (audio.currentTime >= clip.end) { audio.pause(); audio.currentTime = clip.start; } }} />
     <label>Playhead: {cursor.toFixed(2)} seconds<input type="range" min={clip.start} max={clip.end} step="0.01" value={Math.min(clip.end, Math.max(clip.start, cursor))} onChange={e => seek(Number(e.target.value))} /></label><p className="small muted">Times refer to the original recording. Preview plays this trimmed clip; render to hear the full mix.</p>
@@ -49,5 +50,5 @@ export default function ClipEditor({ segment: clip, asset, onChange, onSplit, on
     </fieldset>
     <details><summary>Precise range cut</summary><fieldset className="fields" disabled={disabled}><div className="edit-grid"><label>Cut from (seconds)<input className="field" type="number" min={clip.start} max={clip.end} step="0.01" value={from} onChange={e => setFrom(Number(e.target.value))} /></label><label>Cut to (seconds)<input className="field" type="number" min={clip.start} max={clip.end} step="0.01" value={to} onChange={e => setTo(Number(e.target.value))} /></label></div><div className="row"><button className="btn" onClick={() => setFrom(cursor)}>Mark cut start</button><button className="btn" onClick={() => setTo(cursor)}>Mark cut end</button><button className="btn danger" onClick={() => { try { const result = cutRange(clip, from, to, crypto.randomUUID()); if (!result.length && !confirm('Remove this entire clip from the episode?')) return; onCut(result); setError(''); } catch (error) { setError(error.message); } }}>Cut selected range</button></div></fieldset></details>{error && <p className="message error" role="alert">{error}</p>}
     <div className="edit-grid">{['fadeIn', 'fadeOut'].map(key => <label key={key}>{key === 'fadeIn' ? 'Fade in (seconds)' : 'Fade out (seconds)'}<input className="field" type="number" min="0" max="5" step="0.1" value={clip[key]} onChange={e => { const value = Number(e.target.value); if (value >= 0 && value <= 5) onChange({ ...clip, [key]: value }); }} /></label>)}</div><label>Clip volume: {Math.round(clip.gain * 100)}%<input type="range" min="0" max="2" step="0.05" value={clip.gain} onChange={e => onChange({ ...clip, gain: Number(e.target.value) })} /></label><p className="small muted">Cuts preserve the source audio. Use Undo in the episode header to restore an edit.</p>
-  </div></section>;
+  </fieldset></section>;
 }

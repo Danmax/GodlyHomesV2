@@ -1,9 +1,13 @@
-export const clipRoles = ['intro', 'segment', 'transition', 'closing'];
+import { isVoiceClip, roundTime } from './timeline.js';
+
+export const clipRoles = ['intro', 'segment', 'transition', 'music', 'effects', 'narrator', 'action', 'announcement', 'promo', 'closing'];
+export const roleLabels = { intro: 'Intro', segment: 'Segment', transition: 'Transition', music: 'Music layer', effects: 'Sound FX', narrator: 'Narrator', action: 'Action cue', announcement: 'Announcement', promo: 'Promo', closing: 'Closing / outro' };
 export function cutRange(clip, from, to, newId) {
   if (!Number.isFinite(from) || !Number.isFinite(to) || from < clip.start || to > clip.end || to <= from) throw new Error('Choose a range inside this clip.');
   const before = from - clip.start, after = clip.end - to;
   if ((before > 0 && before < .05) || (after > 0 && after < .05)) throw new Error('Keep at least 0.05 seconds on either side of the cut.');
-  return [before >= .05 ? { ...clip, end: from, fadeOut: 0 } : null, after >= .05 ? { ...clip, id: before >= .05 ? newId : clip.id, start: to, fadeIn: 0 } : null].filter(Boolean);
+  return [before >= .05 ? { ...clip, end: from, fadeOut: 0 } : null, after >= .05 ? { ...clip, id: before >= .05 ? newId : clip.id, start: to, fadeIn: 0,
+    ...(clip.position !== undefined ? { position: roundTime(clip.position + before) } : {}) } : null].filter(Boolean);
 }
 
 // Silence ranges use source coordinates. Keep a little room around speech.
@@ -34,17 +38,23 @@ export function suggestClips(clip, silences, mode = 'split', padding = .15, make
   if (clip.end - start >= .05) ranges.push([start, clip.end]);
   // Never remove a completely quiet recording without explicit manual deletion.
   if (!ranges.length) return [{ ...clip }];
-  return ranges.map(([start, end], index) => ({ ...clip, id: index ? makeId() : clip.id,
-    name: ranges.length > 1 ? `${clip.name.slice(0, 185)} (${index + 1})` : clip.name, start, end,
-    fadeIn: index ? .02 : Math.min(clip.fadeIn, (end - start) / 2),
-    fadeOut: index < ranges.length - 1 ? .02 : Math.min(clip.fadeOut, (end - start) / 2) }));
+  let position = clip.position;
+  return ranges.map(([start, end], index) => {
+    const placed = position;
+    if (position !== undefined) position = roundTime(position + end - start);
+    return { ...clip, id: index ? makeId() : clip.id,
+      ...(placed !== undefined ? { position: placed } : {}),
+      name: ranges.length > 1 ? `${clip.name.slice(0, 185)} (${index + 1})` : clip.name, start, end,
+      fadeIn: index ? .02 : Math.min(clip.fadeIn, (end - start) / 2),
+      fadeOut: index < ranges.length - 1 ? .02 : Math.min(clip.fadeOut, (end - start) / 2) };
+  });
 }
 
 export function autoMix(arrangement, preset = 'balanced') {
   const volume = { balanced: .12, intimate: .07, upbeat: .18 }[preset];
   if (volume === undefined) throw new Error('Choose a mix preset.');
   return { ...arrangement, autoLevel: true, segments: arrangement.segments.map(clip => ({ ...clip,
-    gain: clip.role === 'transition' ? .6 : 1,
+    gain: isVoiceClip(clip) ? 1 : clip.role === 'music' ? volume : .6,
     fadeIn: Math.min(clip.role === 'intro' || clip.role === 'transition' ? .5 : .03, (clip.end - clip.start) / 2),
     fadeOut: Math.min(clip.role === 'closing' || clip.role === 'transition' ? 1 : .03, (clip.end - clip.start) / 2) })),
     music: { ...arrangement.music, volume, duck: true } };

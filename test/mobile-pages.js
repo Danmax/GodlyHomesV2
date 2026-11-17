@@ -47,7 +47,7 @@ export async function testMobilePages(browser, origin) {
     await page.evaluate(() => document.fonts.ready);
     const problems = await page.evaluate(() => {
       const outside = [...document.querySelectorAll('h1,h2,h3,p,a,button,input,select,textarea,audio')].filter(el => {
-        if (!el.getClientRects().length || el.closest('.skip-link, .sr-only')) return false;
+        if (!el.getClientRects().length || el.closest('.skip-link, .sr-only, .timeline-scroll, .timeline-sources, .timeline-rundown')) return false;
         const rect = el.getBoundingClientRect();
         return rect.right > innerWidth + 1 || rect.left < -1;
       }).map(el => `${el.tagName}.${el.className}: ${el.textContent.slice(0, 70)}`);

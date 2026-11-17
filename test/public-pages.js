@@ -93,6 +93,8 @@ try {
   await testMobilePages(browser, origin);
   const { testStudioBuilderBrowser } = await import('./studio-builder-browser.js');
   await testStudioBuilderBrowser(browser, origin);
+  const { testTimelineBrowser } = await import('./timeline-browser.js');
+  await testTimelineBrowser(browser, origin);
   assert.deepEqual(errors, []);
   console.log('PASS: Direct production routes, page titles, shared navigation, desktop/mobile layouts (1440/390/320), external Reflexion links/search and honest store availability.');
 } finally {

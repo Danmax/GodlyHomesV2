@@ -140,6 +140,8 @@ try {
   const [finished] = await rows('SELECT * FROM render_jobs WHERE id = ?', [job.id]);
   assert.equal(finished.state, 'ready', finished.error);
   assert.ok(finished.bytes > 1000);
+  const { testTimelineIntegration } = await import('./timeline-integration.js');
+  await testTimelineIntegration({ mutate, agent, rows, asset, claimJob, processJob });
   const renderedFile = path.join(process.env.MEDIA_DIR, finished.output_key);
   const renderedBytes = await readFile(renderedFile);
   const renderedHash = createHash('sha256').update(renderedBytes).digest('hex');
@@ -274,7 +276,7 @@ try {
       await page.goto(`${url}/studio`);
       await page.getByLabel('Email', { exact: true }).fill('test@godlyhomes.com');
       await page.getByLabel('Password', { exact: true }).fill(password);
-      await page.getByRole('button', { name: 'Sign in to your studio' }).click();
+      await page.getByRole('button', { name: 'Sign in', exact: true }).click();
       await page.getByRole('button', { name: 'New episode' }).waitFor();
       await page.getByRole('button', { name: 'New episode' }).click();
       await page.getByRole('button', { name: 'Start recording', exact: true }).click();
@@ -284,7 +286,7 @@ try {
       await page.getByText('Take saved to your episode.').waitFor({ timeout: 30000 });
       await page.screenshot({ path: 'test-results/studio-record.png', fullPage: true });
       await page.getByRole('button', { name: 'Arrange your episode' }).click();
-      await page.locator('.segment-name').first().click();
+      await page.locator('.timeline-clip').first().click();
       await page.getByText('Precise range cut', { exact: true }).click();
       await page.getByRole('heading', { name: 'Refine this clip' }).waitFor();
       await page.locator('audio').evaluate(audio => new Promise((resolve, reject) => {
@@ -344,25 +346,25 @@ try {
       await page.getByRole('heading', { name: 'Recover recordings' }).waitFor({ state: 'hidden' });
       assert.equal((await rows('SELECT COUNT(*) AS count FROM assets WHERE user_id = ?', [userId]))[0].count, assetsBeforeRecovery);
       await page.getByRole('tab', { name: '2. Arrange & edit' }).click();
-      await page.locator('.segment-name').first().click();
+      await page.locator('.timeline-clip').first().click();
       await page.getByLabel('Cut from (seconds)').fill('0.3');
       await page.getByLabel('Cut to (seconds)').fill('0.6');
       await page.getByRole('button', { name: 'Cut selected range', exact: true }).click();
-      assert.equal(await page.locator('.segment-name').count(), 4);
+      assert.equal(await page.locator('.timeline-clip').count(), 4);
       const library = page.getByLabel('Audio library');
       await library.selectOption({ index: 1 });
       for (const role of ['transition', 'intro', 'closing']) {
         await page.getByLabel('Add as', { exact: true }).selectOption(role);
         await page.getByRole('button', { name: 'Add clip to episode' }).click();
       }
-      assert.equal(await page.locator('.segment-name').count(), 7);
+      assert.equal(await page.locator('.timeline-clip').count(), 7);
       await page.getByText('Saved just now', { exact: true }).waitFor();
       await page.reload();
       await page.locator('.episode-open').filter({ hasText: 'Browser recorded episode' }).click();
       await page.getByRole('tab', { name: '2. Arrange & edit' }).click();
-      assert.equal(await page.locator('.segment-name').count(), 7);
-      assert.match(await page.locator('.segment-name').first().innerText(), /intro/);
-      assert.match(await page.locator('.segment-name').last().innerText(), /closing/);
+      assert.equal(await page.locator('.timeline-clip').count(), 7);
+      assert.match(await page.locator('.timeline-clip').first().innerText(), /Intro/);
+      assert.match(await page.locator('.timeline-clip').last().innerText(), /Closing/);
       await page.screenshot({ path: 'test-results/podcast-editor-mobile.png', fullPage: true });
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
       page.once('dialog', dialog => dialog.dismiss());

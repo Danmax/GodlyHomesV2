@@ -267,7 +267,7 @@ export async function testCommerce({ createApp, rows, origin, password }) {
       await page.goto(`${url}/admin`);
       await page.getByLabel('Email', { exact: true }).fill('test@godlyhomes.com');
       await page.getByLabel('Password', { exact: true }).fill(password);
-      await page.getByRole('button', { name: 'Sign in to your studio' }).click();
+      await page.getByRole('button', { name: 'Sign in', exact: true }).click();
       await page.getByRole('heading', { level: 1, name: 'Website Admin' }).waitFor();
       stripeClient.prices.list = async () => { throw { type: 'StripeAuthenticationError', statusCode: 401, message: 'NEVER_EXPOSE_THIS_KEY' }; };
       await page.getByRole('button', { name: 'Stripe catalog', exact: true }).click();
