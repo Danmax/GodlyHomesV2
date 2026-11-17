@@ -352,7 +352,7 @@ try {
       await page.getByLabel('Cut to (seconds)').fill('0.6');
       await page.getByRole('button', { name: 'Cut selected range', exact: true }).click();
       assert.equal(await page.locator('.timeline-clip').count(), 4);
-      const library = page.getByLabel('Audio library');
+      const library = page.getByLabel('Episode recordings');
       await library.selectOption({ index: 1 });
       for (const role of ['transition', 'intro', 'closing']) {
         await page.getByLabel('Add as', { exact: true }).selectOption(role);

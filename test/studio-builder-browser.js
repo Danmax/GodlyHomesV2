@@ -14,16 +14,18 @@ export async function testStudioBuilderBrowser(browser, origin) {
   const asset = name => ({ id: randomUUID(), name, duration: 10, bytes: wav.length, url: '/fixture-audio' });
   let assets = [asset('Sunday recording'), { ...asset('Music bed'), category: 'music' }], voiceEnabled = true;
   let episode = { id: randomUUID(), title: 'Family rhythms', number: 1, description: '', updatedAt: '2026-11-11', version: 1, seriesId: null, arrangement: { segments: [{ id: randomUUID(), assetId: assets[0].id, name: assets[0].name, role: 'segment', start: 0, end: 10, gain: 1, fadeIn: 0, fadeOut: 0 }], music: { assetId: null, volume: .2, duck: true } } };
-  const generated = asset('AI intro — marin');
+  assets.forEach(asset => { asset.episodeId = episode.id; });
+  const generated = { ...asset('AI intro — marin'), episodeId: episode.id };
   await page.route('**/api/**', route => {
     const path = new URL(route.request().url()).pathname, method = route.request().method();
     let json;
     if (path === '/api/public/website') json = { documents: defaultDocuments, resources: [], products: [] };
     else if (path === '/api/auth/me') json = { user: { id: randomUUID(), role: 'publisher', email: 'author@example.com' }, csrf: 'test-csrf' };
     else if (path === '/api/episodes') json = [episode];
-    else if (path === '/api/assets') { if (method === 'POST') { const uploaded = asset('Uploaded intro.wav'); assets.unshift(uploaded); json = uploaded; } else json = assets; }
+    else if (path === '/api/assets') { if (method === 'POST') { const uploaded = { ...asset('Uploaded intro.wav'), episodeId: episode.id }; assets.unshift(uploaded); json = uploaded; } else json = assets; }
     else if (path === `/api/episodes/${episode.id}`) { episode = { ...episode, ...route.request().postDataJSON(), version: episode.version + 1 }; json = episode; }
     else if (path.endsWith('/jobs')) json = [];
+    else if (path === '/api/audio-library') json = { folders: [], clips: [] };
     else if (path === '/api/studio-tools/options') json = { introEnabled: voiceEnabled, voices: ['marin', 'cedar'] };
     else if (path.endsWith('/analyze')) json = { silences: [{ start: 3, end: 4 }] };
     else if (path.startsWith('/api/studio-tools/assets/') && method === 'PATCH') { const id = path.split('/').at(-1); assets = assets.map(a => a.id === id ? { ...a, ...route.request().postDataJSON() } : a); json = assets.find(a => a.id === id); }
@@ -66,9 +68,9 @@ export async function testStudioBuilderBrowser(browser, origin) {
     const count = episode.arrangement.segments.length;
     assert.deepEqual(await page.getByLabel('Music source').locator('option').allTextContents(), ['No background music', 'Music bed']);
     await page.getByLabel('Add as', { exact: true }).selectOption('music');
-    assert.equal(await page.getByLabel('Audio library').inputValue(), '', 'Switching to music clears a selected recording');
-    assert.deepEqual(await page.getByLabel('Audio library').locator('option').allTextContents(), ['Choose a background music track', 'Music bed']);
-    await page.getByLabel('Audio library').selectOption(assets.find(a => a.name === 'Music bed').id);
+    assert.equal(await page.getByLabel('Episode recordings').inputValue(), '', 'Switching to music clears a selected recording');
+    assert.deepEqual(await page.getByLabel('Episode recordings').locator('option').allTextContents(), ['Choose a background music track', 'Music bed']);
+    await page.getByLabel('Episode recordings').selectOption(assets.find(a => a.name === 'Music bed').id);
     await page.getByRole('button', { name: 'Use as background music', exact: true }).click();
     await saved(); assert.equal(episode.arrangement.segments.length, count);
     await page.getByRole('button', { name: 'Apply auto mix', exact: true }).click();

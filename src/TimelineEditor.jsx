@@ -58,11 +58,17 @@ function stackClips(clips) {
   return { rows, height: Math.max(90, ends.length * 70 + 16) };
 }
 
-export default function TimelineEditor({ arrangement: source, assets, selected, onSelect, onChange, onAdd, onImport, disabled }) {
+export default function TimelineEditor({ arrangement: source, assets, episodeAssets = assets, library = { folders: [], clips: [] }, selected, onSelect, onChange, onAdd, onImport, disabled }) {
   const arrangement = useMemo(() => toTimeline(source), [source]);
   const [playhead, setPlayhead] = useState(0), [playing, setPlaying] = useState(false), [error, setError] = useState('');
   const [zoom, setZoom] = useState('auto'), [viewport, setViewport] = useState(900), [snap, setSnap] = useState(true), [gesture, setGesture] = useState(null);
   const [search, setSearch] = useState('');
+  const [sourceScope, setSourceScope] = useState('episode'), [sourceFolder, setSourceFolder] = useState('all');
+  const sourceEntries = (sourceScope === 'episode'
+    ? episodeAssets.map(asset => ({ key: asset.id, asset, name: asset.name, duration: asset.duration, role: asset.category === 'music' ? 'music-layer' : 'segment' }))
+    : library.clips.filter(item => sourceFolder === 'all' || (sourceFolder === 'unfiled' ? !item.folderId : item.folderId === sourceFolder))
+      .map(item => ({ key: item.id, asset: item.asset, name: item.name, duration: item.end - item.start, role: item.role, template: item })))
+    .filter(item => item.name.toLowerCase().includes(search.toLowerCase()));
   const scroll = useRef(), playback = useRef(), drag = useRef(), latest = useRef();
   const duration = episodeDuration(arrangement), span = Math.min(7200, Math.max(60, duration + 10));
   const fitScale = Math.max(.04, Math.min(96, (viewport - 172) / span));
@@ -170,9 +176,11 @@ export default function TimelineEditor({ arrangement: source, assets, selected, 
         return;
       }
       const data = JSON.parse(event.dataTransfer.getData('application/x-godly-audio'));
-      const asset = assets.find(item => item.id === data.assetId);
+      const saved = data.libraryClipId ? library.clips.find(item => item.id === data.libraryClipId) : null;
+      if (data.libraryClipId && !saved) throw new Error('This saved clip is unavailable. Refresh the clip library.');
+      const asset = saved?.asset || episodeAssets.find(item => item.id === data.assetId);
       if (!asset) return;
-      await onAdd(asset, data.role === 'music-bed' || data.role === 'library' ? (track.kind === 'music' ? 'music' : 'segment') : data.role, placement);
+      await onAdd(asset, saved?.role || (data.role === 'music-bed' || data.role === 'library' ? (track.kind === 'music' ? 'music' : 'segment') : data.role), { ...placement, ...(saved ? { template: saved } : {}) });
       setError('');
     } catch (error) { setError(error.message || 'Choose audio from your library to place on a track.'); }
   };
@@ -185,9 +193,12 @@ export default function TimelineEditor({ arrangement: source, assets, selected, 
     if (event.key === 'Escape') { drag.current = null; setGesture(null); stop(); }
   }}>
     <div className="timeline-heading"><div><p className="eyebrow">Production desk</p><h2>Your story, in layers.</h2><p className="small muted">Drag clips or audio files onto tracks. Pull either edge to trim. Layer your whole episode here.</p></div><span className="timeline-count"><Headphones size={16} />{arrangement.tracks.length} tracks · {arrangement.segments.length} clips</span></div>
-    <div className="timeline-source-tray"><label className="timeline-source-search"><Search size={14} /><input aria-label="Search timeline audio" placeholder="Find audio…" value={search} onChange={event => setSearch(event.target.value)} /></label><div className="timeline-sources">{assets.filter(asset => asset.name.toLowerCase().includes(search.toLowerCase())).map(asset => <div className="timeline-source" key={asset.id} draggable={!disabled} onDragStart={event => {
-      event.dataTransfer.setData('application/x-godly-audio', JSON.stringify({ assetId: asset.id, role: asset.category === 'music' ? 'music-layer' : 'segment' })); event.dataTransfer.effectAllowed = 'copy';
-    }}><GripVertical size={13} /><Music2 size={14} /><span title={asset.name}>{asset.name}<small>{formatTime(asset.duration)} · {asset.category === 'music' ? 'Music' : 'Recording'}</small></span><button aria-label={`Add ${asset.name} at playhead`} title="Add at playhead" disabled={disabled || arrangement.segments.length >= 200} onClick={async () => { try { await onAdd(asset, asset.category === 'music' ? 'music-layer' : 'segment', { at: playhead, trackId: clip?.trackId || (asset.category === 'music' ? 'music' : 'program') }); setError(''); } catch (error) { setError(error.message); } }}><Plus size={14} /></button></div>)}</div>{!assets.length && <span className="small muted">Record or upload audio to start building.</span>}</div>
+    <div className="timeline-source-navigation"><div className="timeline-source-switch" role="group" aria-label="Timeline audio sources"><button aria-pressed={sourceScope === 'episode'} onClick={() => { setSourceScope('episode'); setSearch(''); }}>Episode audio <span>{episodeAssets.length}</span></button><button aria-pressed={sourceScope === 'library'} onClick={() => { setSourceScope('library'); setSearch(''); }}>Saved library <span>{library.clips.length}</span></button></div>
+      {sourceScope === 'library' && <label>Folder<select aria-label="Timeline library folder" value={sourceFolder} onChange={event => setSourceFolder(event.target.value)}><option value="all">All folders</option><option value="unfiled">Unfiled</option>{library.folders.map(folder => <option key={folder.id} value={folder.id}>{folder.name}</option>)}</select></label>}
+    </div>
+    <div className="timeline-source-tray"><label className="timeline-source-search"><Search size={14} /><input aria-label="Search timeline audio" placeholder="Find audio…" value={search} onChange={event => setSearch(event.target.value)} /></label><div className="timeline-sources">{sourceEntries.map(entry => <div className="timeline-source" key={entry.key} draggable={!disabled} onDragStart={event => {
+      event.dataTransfer.setData('application/x-godly-audio', JSON.stringify({ assetId: entry.asset.id, role: entry.role, ...(entry.template ? { libraryClipId: entry.template.id } : {}) })); event.dataTransfer.effectAllowed = 'copy';
+    }}><GripVertical size={13} /><Music2 size={14} /><span title={entry.name}>{entry.name}<small>{formatTime(entry.duration)} · {entry.template ? roleLabels[entry.role] : entry.asset.category === 'music' ? 'Music' : 'Recording'}</small></span><button aria-label={`Add ${entry.name} at playhead`} title="Add at playhead" disabled={disabled || arrangement.segments.length >= 200} onClick={async () => { try { await onAdd(entry.asset, entry.role, { at: playhead, ...(entry.template ? { template: entry.template } : {}), trackId: clip?.trackId || (entry.asset.category === 'music' || entry.role === 'music' ? 'music' : 'program') }); setError(''); } catch (error) { setError(error.message); } }}><Plus size={14} /></button></div>)}</div>{!sourceEntries.length && <span className="small muted">{search ? 'No matching audio.' : sourceScope === 'episode' ? 'Record or upload audio for this episode.' : 'Save an episode clip to a library folder to reuse it here.'}</span>}</div>
     <div className="timeline-toolbar"><div className="row"><button className="btn icon" aria-label="Back to beginning" onClick={() => seek(0)}><SkipBack size={16} /></button><button className="btn primary" aria-label={playing ? 'Pause timeline' : 'Play timeline'} disabled={disabled || !duration} onClick={play}>{playing ? <Pause size={16} /> : <Play size={16} />}{playing ? 'Pause' : 'Play mix'}</button><output className="timeline-time" aria-label="Timeline time">{formatTime(playhead)}<span> / {formatTime(duration)}</span></output></div><div className="row"><button className="btn icon" title="Split selected clip at playhead (S)" aria-label="Split at playhead" disabled={disabled || !canSplit} onClick={split}><Scissors size={16} /></button><button className="btn icon" title="Duplicate selected clip" aria-label="Duplicate clip" disabled={disabled || !clip || arrangement.segments.length >= 200 || clipEnd(clip) + clipDuration(clip) > 7200} onClick={duplicate}><Copy size={16} /></button><button className="btn icon danger" title="Delete selected clip" aria-label="Delete selected clip" disabled={disabled || !clip} onClick={remove}><Trash2 size={16} /></button><span className="timeline-toolbar-divider" /><button className={`btn icon ${snap ? 'snap-active' : ''}`} title="Snap to clip edges and playhead" aria-label="Snap to clips" aria-pressed={snap} onClick={() => setSnap(!snap)}><Magnet size={16} /></button><label className="timeline-zoom"><ZoomIn size={15} /><span className="sr-only">Timeline zoom</span><select aria-label="Timeline zoom" value={zoom ?? 'fit'} onChange={event => setZoom(event.target.value === 'auto' ? 'auto' : event.target.value === 'fit' ? null : Number(event.target.value))}><option value="auto">Auto</option><option value="fit">Fit</option>{[.25, .5, 1, 2, 4, 8, 16, 32, 64, 128].map(value => <option key={value} value={value}>{value} px/s</option>)}</select></label></div></div>
     <div className="timeline-scroll" ref={scroll} tabIndex="0" aria-label="Audio tracks; scroll horizontally to navigate">
       <div className="timeline-surface" style={{ width: width + 172 }}>

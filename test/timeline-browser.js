@@ -16,18 +16,20 @@ export async function testTimelineBrowser(browser, origin) {
   const assets = [source('Sunday conversation'), source('Gentle piano', 'music'), source('Opening welcome'), source('Soft chime'), source('This week at Godly Homes')];
   let episode = { id: randomUUID(), title: 'A little room for grace', number: 12, description: '', updatedAt: '2026-11-16', version: 1,
     arrangement: { segments: [{ id: randomUUID(), assetId: assets[0].id, name: assets[0].name, role: 'segment', start: 0, end: 10, gain: 1, fadeIn: 0, fadeOut: 0 }], music: { assetId: null, volume: .12, duck: true } } };
+  assets.forEach(asset => { asset.episodeId = episode.id; });
   await page.route('**/api/**', route => {
     const path = new URL(route.request().url()).pathname, method = route.request().method(); let json;
     if (path === '/api/public/website') json = { documents: defaultDocuments, resources: [], products: [] };
     else if (path === '/api/auth/me') json = { user: { id: randomUUID(), role: 'publisher', email: 'author@example.com' }, csrf: 'timeline-csrf' };
     else if (path === '/api/episodes') json = [episode];
-    else if (path === '/api/assets') { if (method === 'POST') { const uploaded = source('Dropped chime.wav'); assets.push(uploaded); json = uploaded; } else json = assets; }
+    else if (path === '/api/assets') { if (method === 'POST') { const uploaded = { ...source('Dropped chime.wav'), episodeId: episode.id }; assets.push(uploaded); json = uploaded; } else json = assets; }
     else if (path === `/api/episodes/${episode.id}` && method === 'PUT') {
       const body = route.request().postDataJSON();
       const parsed = arrangementSchema.safeParse(body.arrangement);
       if (!parsed.success) { errors.push(parsed.error.message); return route.fulfill({ status: 400, json: { error: 'Invalid timeline fixture save' } }); }
       episode = { ...episode, ...body, arrangement: parsed.data, version: episode.version + 1 }; json = episode;
-    } else if (path === '/api/studio-tools/options') json = { introEnabled: false, voices: [] };
+    } else if (path === '/api/audio-library') json = { folders: [], clips: [] };
+    else if (path === '/api/studio-tools/options') json = { introEnabled: false, voices: [] };
     else { unexpected.push(path); return route.fulfill({ status: 404, json: { error: `Unexpected fixture: ${path}` } }); }
     return route.fulfill({ json });
   });
@@ -94,12 +96,12 @@ export async function testTimelineBrowser(browser, origin) {
     await page.getByRole('button', { name: 'Remove Audio 6 track', exact: true }).click(); await saved(); assert.equal(episode.arrangement.tracks.length, 5);
     // Production roles remain editable, including with numeric controls on touch devices.
     await page.getByLabel('Add as', { exact: true }).selectOption('intro');
-    await page.getByLabel('Audio library', { exact: true }).selectOption(assets[2].id);
+    await page.getByLabel('Episode recordings', { exact: true }).selectOption(assets[2].id);
     await page.getByRole('button', { name: 'Add clip to episode', exact: true }).click(); await saved();
     assert.equal(episode.arrangement.segments[0].role, 'intro');
     await page.getByLabel('Trim end (seconds)', { exact: true }).fill('3'); await saved();
     for (const [role, assetId] of [['transition', assets[3].id], ['action', assets[3].id], ['announcement', assets[4].id], ['promo', assets[4].id], ['closing', assets[2].id]]) {
-      await page.getByLabel('Add as', { exact: true }).selectOption(role); await page.getByLabel('Audio library', { exact: true }).selectOption(assetId);
+      await page.getByLabel('Add as', { exact: true }).selectOption(role); await page.getByLabel('Episode recordings', { exact: true }).selectOption(assetId);
       await page.getByRole('button', { name: 'Add clip to episode', exact: true }).click(); await saved();
       assert.ok(episode.arrangement.segments.some(clip => clip.role === role));
     }

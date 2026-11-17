@@ -12,6 +12,8 @@ import Login from './AccountAccess.jsx';
 import { PodcasterRequest } from './UserAdmin.jsx';
 import ChannelManager from './ChannelManager.jsx';
 import TimelineEditor from './TimelineEditor.jsx';
+import ReusableClipLibrary from './ReusableClipLibrary.jsx';
+import { assetsForEpisode, clipFromSource } from '../shared/audio-library.js';
 import { episodeDuration, insertClip, splitClip, toTimeline } from '../shared/timeline.js';
 
 export function Brand() { return <div className="studio-brand"><Logo /><span className="badge">Studio</span></div>; }
@@ -110,7 +112,7 @@ export default function Studio() {
   };
   const deleteEpisode = ep => {
     if (busy || recording) return;
-    if (!confirm(`Delete “${ep.title}”?\n\nThis permanently removes the episode, its edits and render history from the studio, website, and RSS feed. Original audio files stay in your library.\n\nThis cannot be undone.`)) return;
+    if (!confirm(`Delete “${ep.title}”?\n\nThis permanently removes the episode, its edits and render history from the studio, website, and RSS feed. Original recordings are retained. Clips saved to library folders remain available for other episodes.\n\nThis cannot be undone.`)) return;
     action(async () => {
       deletingId.current = ep.id;
       try {
@@ -141,7 +143,7 @@ export default function Studio() {
     }
     const blob = await recoveryBlob(session);
     if (!blob.size) throw new Error('No audio chunks were captured. You can remove this empty recovery.');
-    const asset = (session.assetId ? (await api('/api/assets')).find(a => a.id === session.assetId) : null) || await uploadAudio(blob, `Recovered take.${session.mime.includes('mp4') ? 'm4a' : session.mime.includes('ogg') ? 'ogg' : 'webm'}`);
+    const asset = (session.assetId ? (await api('/api/assets')).find(a => a.id === session.assetId) : null) || await uploadAudio(blob, `Recovered take.${session.mime.includes('mp4') ? 'm4a' : session.mime.includes('ogg') ? 'ogg' : 'webm'}`, 'recording', session.episodeId);
     current.current = clone(ep); setDraft(current.current);
     await addAsset(asset); await removeRecovery(session.id); await refreshRecovery();
   });
@@ -165,6 +167,16 @@ export default function Studio() {
 
 function Workspace({ draft, assets, change, save, busy, action, addAsset, onProcessingChange, onAssetRenamed, recording, setRecording, userId, onRecovery, onPublished }) {
   const [tab, setTab] = useState('record'), [selected, updateSelected] = useState(null);
+  const [library, setLibrary] = useState({ folders: [], clips: [] }), [libraryError, setLibraryError] = useState(''), [libraryLoading, setLibraryLoading] = useState(true);
+  const refreshLibrary = useCallback(async () => {
+    setLibraryLoading(true);
+    try { const result = await api('/api/audio-library'); setLibrary(result); setLibraryError(''); return result; }
+    catch (error) { setLibraryError(error.message); throw error; }
+    finally { setLibraryLoading(false); }
+  }, []);
+  useEffect(() => { refreshLibrary().catch(() => {}); }, [refreshLibrary]);
+  const sourceAssets = [...new Map([...library.clips.map(item => item.asset), ...assets].map(asset => [asset.id, asset])).values()];
+  const episodeAssets = assetsForEpisode(sourceAssets, draft);
   const selectedRef = useRef(null);
   const setSelected = value => { selectedRef.current = value; updateSelected(value); };
   const file = useRef(), musicFile = useRef();
@@ -172,15 +184,15 @@ function Workspace({ draft, assets, change, save, busy, action, addAsset, onProc
   const segment = arrangement.segments.find(s => s.id === selected);
   const importAudio = event => {
     const f = event.target.files?.[0]; event.target.value = ''; if (!f) return;
-    action(async () => { await addAsset(await uploadAudio(f, f.name)); });
+    action(async () => { await addAsset(await uploadAudio(f, f.name, 'recording', draft.id)); });
   };
   const editSegments = fn => change(ep => { const timeline = toTimeline(ep.arrangement); return { ...ep, arrangement: { ...timeline, segments: fn(timeline.segments) } }; });
   const music = value => change(ep => ({ ...ep, arrangement: { ...ep.arrangement, music: { ...ep.arrangement.music, ...value } } }));
-  const addLibraryClip = (asset, role, placement) => {
+  const addLibraryClip = async (asset, role, placement) => {
+    await addAsset(assets.find(item => item.id === asset.id) || asset, { libraryOnly: true });
     if (role === 'music' && !placement) { music({ assetId: asset.id, volume: .12, duck: true }); return; }
     if (role === 'music-layer') role = 'music';
-    const clip = { id: crypto.randomUUID(), assetId: asset.id, name: asset.name, role, start: 0, end: role === 'transition' ? Math.min(5, asset.duration) : asset.duration, gain: 1, fadeIn: role === 'transition' ? .5 : 0, fadeOut: role === 'transition' ? .5 : 0 };
-    if (role === 'music') clip.gain = .2;
+    const clip = clipFromSource(asset, role, placement?.template);
     change(ep => ({ ...ep, arrangement: insertClip(ep.arrangement, clip, { anchorId: selectedRef.current, ...placement }) }));
     setSelected(clip.id);
   };
@@ -188,21 +200,21 @@ function Workspace({ draft, assets, change, save, busy, action, addAsset, onProc
     <div className="tabs" role="tablist" aria-label="Episode workflow" style={{ marginTop: 22 }}>{[['record', '1. Record'], ['edit', '2. Arrange & edit'], ['publish', '3. Review & publish']].map(([id, title]) => <button key={id} role="tab" aria-selected={tab === id} disabled={recording || busy} onClick={() => setTab(id)}>{title}</button>)}</div>
     {tab === 'record' && <div className="workspace"><div className="stack"><Recorder userId={userId} episodeId={draft.id} onAsset={addAsset} onBusy={setRecording} onRecovery={onRecovery} /><div className="card row between"><div><h3 style={{ marginBottom: 5 }}>Already have a recording?</h3><p className="small muted" style={{ marginBottom: 0 }}>Import audio up to 512 MB and two hours.</p></div><input ref={file} type="file" accept="audio/*" hidden onChange={importAudio} /><button className="btn" disabled={busy || recording} onClick={() => file.current.click()}><Upload size={15} />Import audio</button></div></div><div className="stack"><section className="card" style={{ background: '#e9eddf' }}><p className="eyebrow">Before you begin</p><h2>Make a little room<br />for your voice.</h2><ol className="steps"><li><span className="step-num">1</span><div><strong>Find a quiet corner</strong><br /><span className="muted">Use headphones and place your microphone a hand’s width away.</span></div></li><li><span className="step-num">2</span><div><strong>Make a short test take</strong><br /><span className="muted">Record a few words, stop, and listen in Arrange & edit.</span></div></li><li><span className="step-num">3</span><div><strong>Record in comfortable sections</strong><br /><span className="muted">Pause whenever you need. You can trim and reorder takes later.</span></div></li></ol></section><section className="card"><h2>Your takes</h2><p className="muted small">{draft.arrangement.segments.length ? `${draft.arrangement.segments.length} segments ready to arrange.` : 'Each saved take will appear here.'}</p>{draft.arrangement.segments.map(s => <p key={s.id} className="row small"><Check size={14} color="#55644c" />{s.name} <span className="muted">{formatTime(s.end - s.start)}</span></p>)}<button className="btn" disabled={!draft.arrangement.segments.length || recording} onClick={() => setTab('edit')}>Arrange your episode →</button></section></div></div>}
     {tab === 'edit' && <div className="production-workspace">
-      <TimelineEditor arrangement={draft.arrangement} assets={assets} selected={selected} onSelect={setSelected} disabled={busy}
+      <TimelineEditor arrangement={draft.arrangement} assets={sourceAssets} episodeAssets={episodeAssets} library={library} selected={selected} onSelect={setSelected} disabled={busy}
         onChange={arrangement => change(ep => ({ ...ep, arrangement }))} onAdd={addLibraryClip}
         onImport={(files, placement) => action(async () => {
           let at = placement.at;
           for (const file of files) {
             if (file.size > 512 * 1024 * 1024) throw new Error(`${file.name}: choose a file smaller than 512 MB.`);
             const role = placement.kind === 'music' ? 'music-layer' : placement.kind === 'effects' ? 'effects' : 'segment';
-            const asset = await uploadAudio(file, file.name, placement.kind === 'music' ? 'music' : 'recording');
-            await addAsset(asset, { libraryOnly: true }); addLibraryClip(asset, role, { at, trackId: placement.trackId });
+            const asset = await uploadAudio(file, file.name, placement.kind === 'music' ? 'music' : 'recording', draft.id);
+            await addLibraryClip(asset, role, { at, trackId: placement.trackId });
             at += asset.duration; await save();
           }
         })} />
       <div className="workspace production-details"><div className="stack">
         {segment ? <ClipEditor key={segment.id} segment={segment} tracks={arrangement.tracks} disabled={busy} onBusy={onProcessingChange}
-          maxClips={201 - arrangement.segments.length} asset={assets.find(a => a.id === segment.assetId)}
+          maxClips={201 - arrangement.segments.length} asset={sourceAssets.find(a => a.id === segment.assetId)}
           onCut={clips => {
             if (arrangement.segments.length - 1 + clips.length > 200) throw new Error('Episodes can contain up to 200 clips. Try a longer minimum pause.');
             editSegments(list => list.flatMap(item => item.id === segment.id ? clips : [item])); setSelected(clips[0]?.id || null);
@@ -213,16 +225,18 @@ function Workspace({ draft, assets, change, save, busy, action, addAsset, onProc
           onMix={arrangement => change(ep => ({ ...ep, arrangement }))} onGenerated={asset => addAsset(asset, { libraryOnly: true })}
           onAdd={addLibraryClip} onBusy={onProcessingChange} disabled={busy} />
       </div><div className="stack">
-        <ClipLibrary assets={assets} onAdd={addLibraryClip} onUpload={async (asset, role) => {
-          await addAsset(asset, { libraryOnly: true }); if (role !== 'library') { addLibraryClip(asset, role); await save(); }
+        <ReusableClipLibrary library={library} selectedClip={segment} episodeAssets={episodeAssets} error={libraryError} disabled={busy || libraryLoading}
+          onBusy={onProcessingChange} onRefresh={refreshLibrary} onAdd={async item => { await addLibraryClip(item.asset, item.role, { template: item }); await save(); }} />
+        <ClipLibrary assets={episodeAssets} episodeId={draft.id} onAdd={addLibraryClip} onUpload={async (asset, role) => {
+          if (role === 'library') await addAsset(asset, { libraryOnly: true }); else { await addLibraryClip(asset, role); await save(); }
         }} onRename={onAssetRenamed} onBusy={onProcessingChange} disabled={busy} />
         <section className="card fields"><div><h3>Looping music bed</h3><p className="small muted">For a continuous background, choose a bed that loops to fit. Use Music layer in the library for clips you can position and trim.</p></div>
           <label>Music source<select className="field" value={draft.arrangement.music.assetId || ''} disabled={busy} onChange={e => music({ assetId: e.target.value || null })}>
-            <option value="">No background music</option>{assets.filter(a => a.category === 'music').map(a => <option value={a.id} key={a.id}>{a.name}</option>)}
+            <option value="">No background music</option>{episodeAssets.filter(a => a.category === 'music').map(a => <option value={a.id} key={a.id}>{a.name}</option>)}
           </select></label>
           <input ref={musicFile} type="file" accept="audio/*" hidden onChange={event => {
             const f = event.target.files?.[0]; event.target.value = '';
-            if (f) action(async () => { const a = await uploadAudio(f, f.name, 'music'); await addAsset(a, { libraryOnly: true }); music({ assetId: a.id }); await save(); });
+            if (f) action(async () => { const a = await uploadAudio(f, f.name, 'music', draft.id); await addAsset(a, { libraryOnly: true }); music({ assetId: a.id }); await save(); });
           }} /><button className="btn" disabled={busy} onClick={() => musicFile.current.click()}><Upload size={14} />Upload music</button>
           {draft.arrangement.music.assetId && <><label>Music volume: {Math.round(draft.arrangement.music.volume * 100)}%<input className="music-bed-volume" type="range" min="0" max="1" step="0.01" value={draft.arrangement.music.volume} disabled={busy} onChange={e => music({ volume: +e.target.value })} /></label>
             <label className="row"><input type="checkbox" checked={draft.arrangement.music.duck} disabled={busy} onChange={e => music({ duck: e.target.checked })} />Lower under voice</label></>}
