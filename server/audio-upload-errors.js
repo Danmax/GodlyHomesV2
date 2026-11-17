@@ -1,7 +1,9 @@
 export function audioUploadError(error, stage) {
   if (error.status || error.name === 'ZodError') return error;
   let message, status = 503;
-  if (['ER_BAD_FIELD_ERROR', 'ER_NO_SUCH_TABLE'].includes(error.code)) {
+  if (/pthread_create\(\).*failed|Resource temporarily unavailable/i.test(error.message)) {
+    message = 'Audio processing reached the server resource limit. Please retry your take from Recover recordings.';
+  } else if (['ER_BAD_FIELD_ERROR', 'ER_NO_SUCH_TABLE'].includes(error.code)) {
     message = 'The server database needs its latest update. Ask the administrator to run database migrations, then restore your take from Recover recordings.';
   } else if (['ENOENT', 'EACCES', 'ENOEXEC'].includes(error.code) || [126, 127].includes(error.exitCode)) {
     message = 'Audio tools could not run on the server. Ask the administrator to check FFmpeg and ffprobe, then restore your take from Recover recordings.';

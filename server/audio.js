@@ -8,9 +8,27 @@ export const importInputOptions = ['-protocol_whitelist', 'file,pipe', '-format_
   'aac,aiff,amr,ape,asf,au,avi,caf,flac,flv,matroska,webm,mov,mp4,m4a,3gp,3g2,mj2,mp3,ogg,wav,wv'];
 export const canonicalInputOptions = ['-protocol_whitelist', 'file,pipe', '-format_whitelist', 'flac', '-f', 'flac'];
 
+// Shared hosting exposes many CPU cores but permits few threads per account.
+// Output-only -threads does not constrain the input decoder or filter pools.
+export function boundedAudioThreads(args) {
+  // Keep the established scheduler for multi-input render graphs. Imports and
+  // source analysis are the paths that decode browser recordings on this host.
+  if (args.includes('-filter_complex')) return args;
+  const bounded = ['-filter_threads', '1', '-filter_complex_threads', '1'];
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '-threads') { bounded.push('-threads', '1'); i++; }
+    else if (args[i] === '-i') bounded.push('-threads', '1', '-i');
+    else bounded.push(args[i]);
+  }
+  // All internal FFmpeg commands end with their output path (or pipe '-').
+  bounded.splice(bounded.length - 1, 0, '-threads', '1');
+  return bounded;
+}
+
 export function run(command, args, timeout = 30 * 60 * 1000) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    const toolArgs = command === config.ffmpeg ? boundedAudioThreads(args) : command === config.ffprobe ? ['-threads', '1', ...args] : args;
+    const child = spawn(command, toolArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
     let stdout = '', stderr = '';
     const timer = setTimeout(() => { child.kill('SIGKILL'); }, timeout);
     child.stdout.on('data', data => { stdout = (stdout + data).slice(-100000); });

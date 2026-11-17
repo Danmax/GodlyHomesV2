@@ -261,3 +261,7 @@ See [the detailed findings and verification limits](docs/security-review-2026-11
 Hostinger should use `build:deploy` as its build script. It runs migrations before the frontend build and publication, so a failed migration blocks a new release. The ordinary `npm run build` remains database-free for local builds and tests.
 
 Tablet and phone layouts are checked at 320, 390, 600, 768, 820, 1024, and 1440px widths. Editing panels stack on narrower tablets, touch controls use 44px button targets, and tablet form text uses 16px sizing. The library browser test also emulates touch input for clip selection, mute, and adding saved clips. Timeline scrolling stays inside the editor; precise numeric controls and Add buttons provide alternatives to dragging. These are browser-emulation checks; physical iPad/iPhone/Android device testing is separate.
+
+### Recording upload resource errors on managed hosting
+
+If upload diagnostics show `pthread_create() failed: Resource temporarily unavailable` during Opus decoding, FFmpeg recognized the WebM input but could not create a processing thread. Recording imports bound decoder, encoder and filter threads; ffprobe is also bounded. Complex episode render graphs retain their existing scheduler. If a one-thread import still fails, inspect the hosting account's process/thread and memory limits with the provider; changing the recording extension does not resolve that resource failure. The browser retains failed takes in Recover recordings. Preserve a downloaded backup until the host can process uploads successfully.
