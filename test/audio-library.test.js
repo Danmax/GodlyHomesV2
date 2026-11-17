@@ -11,6 +11,7 @@ test('recordings stay with their episode even when removed from its timeline', (
   assert.deepEqual(assetsForEpisode(assets, episode).map(asset => asset.id), ['owned', 'legacy', 'bed']);
   assert.deepEqual(assetsForEpisode(assets, { ...episode, arrangement: { segments: [], music: {} } }).map(asset => asset.id), ['owned']);
   assert.equal(assetsForEpisode(assets, { id: randomUUID(), arrangement: { segments: [], music: {} } }).length, 0);
+  assert.ok(!assetsForEpisode(assets, { ...episode, arrangement: { segments: [{ assetId: 'other' }], music: {} } }).some(asset => asset.id === 'other'), 'Using a saved clip does not expose another episode’s full recording in the source tray');
 });
 
 test('saved clip settings exclude episode placement and reuse as independent timeline copies', () => {

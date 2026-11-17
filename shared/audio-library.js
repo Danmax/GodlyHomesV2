@@ -1,6 +1,6 @@
 export function assetsForEpisode(assets, episode) {
   const ids = new Set([...(episode.arrangement.segments || []).map(clip => clip.assetId), episode.arrangement.music?.assetId].filter(Boolean));
-  return assets.filter(asset => asset.episodeId === episode.id || ids.has(asset.id));
+  return assets.filter(asset => asset.episodeId === episode.id || (!asset.episodeId && ids.has(asset.id)));
 }
 
 // A library item is a reusable edit, independent of its timeline placement.

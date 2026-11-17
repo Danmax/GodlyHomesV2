@@ -31,6 +31,8 @@ try {
   }
   if (!connection) throw new Error(`MySQL could not start: ${await readFile(path.join(root, 'mysql.log'), 'utf8')}`);
   await connection.query('CREATE DATABASE godly_homes_test');
+  const { testAudioLibraryMigration, testAudioLibrary } = await import('./audio-library-integration.js');
+  await testAudioLibraryMigration({ mysql, socket });
   Object.assign(process.env, { DB_SOCKET: socket, DB_USER: 'root', DB_PASSWORD: '', DB_NAME: 'godly_homes_test', MEDIA_DIR: path.join(root, 'media'), FFMPEG_PATH: ffmpeg, FFPROBE_PATH: ffprobe.path, APP_URL: 'http://localhost:5173' });
   await command(process.execPath, ['server/migrate.js']);
   ({ db } = await import('../server/db.js'));
@@ -142,6 +144,7 @@ try {
   assert.ok(finished.bytes > 1000);
   const { testTimelineIntegration } = await import('./timeline-integration.js');
   await testTimelineIntegration({ mutate, agent, rows, asset, claimJob, processJob });
+  await testAudioLibrary({ app, agent, mutate, otherAgent: stranger, otherCsrf: otherLogin.body.csrf, otherId, origin, fixture, rows, claimJob, processJob });
   const renderedFile = path.join(process.env.MEDIA_DIR, finished.output_key);
   const renderedBytes = await readFile(renderedFile);
   const renderedHash = createHash('sha256').update(renderedBytes).digest('hex');
