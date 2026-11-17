@@ -26,6 +26,7 @@ import { createCommerce } from './commerce.js';
 import { audioUploadLimit, guardedUpload, storageUsed, withMediaTransferBudget } from './upload-budget.js';
 import { studioTools } from './studio-tools.js';
 import { audioLibrary, mapAudioAsset } from './audio-library.js';
+import { audioUploadError } from './audio-upload-errors.js';
 
 const asyncRoute = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const failure = (message, status = 400) => Object.assign(new Error(message), { status });
@@ -251,7 +252,7 @@ export async function createApp({ serveStatic = true, stripeClient, commerceSett
   app.post('/api/assets', audioUploadLimit(), guardedUpload('audio', upload.single('audio'), async (req, res) => {
     const file = req.file;
     if (!file) throw failure('Choose an audio file.');
-    let stored;
+    let stored, stage = 'validate';
     try {
       const category = z.enum(['recording', 'music']).default('recording').parse(req.body.category);
       const episodeId = z.uuid().nullable().default(null).parse(req.body.episodeId);
@@ -264,20 +265,23 @@ export async function createApp({ serveStatic = true, stripeClient, commerceSett
       stored = path.join(config.mediaDir, storageKey);
       // Canonical lossless audio gives streaming WebM recordings a seekable duration,
       // strips non-audio streams, and keeps source playback consistent across browsers.
+      stage = 'convert';
       await run(config.ffmpeg, ['-hide_banner', '-y', ...importInputOptions, '-i', file.path, '-map', '0:a:0', '-vn', '-t', '7201', '-ar', '44100', '-ac', '2', '-threads', '2', '-fs', String(config.maxProcessedBytes + 1), '-codec:a', 'flac', stored], 10 * 60 * 1000);
+      stage = 'probe';
       const { size } = await stat(stored);
       if (size > config.maxProcessedBytes) throw failure('The processed recording exceeds the audio storage limit. Shorten the recording and retry.', 413);
       const duration = await probe(stored);
       const filename = file.originalname.replace(/[\u0000-\u001f]/g, '').slice(0, 200) || 'Recording';
+      stage = 'save';
       await rows('INSERT INTO assets (id, user_id, filename, storage_key, mime, bytes, duration, category, episode_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', [id, req.user.id, filename, storageKey, 'audio/flac', size, duration, category, episodeId]);
       return { id, name: filename, category, episodeId, duration, bytes: size, url: `/api/assets/${id}/audio` };
     } catch (error) {
       const oversized = stored && await stat(stored).then(details => details.size > config.maxProcessedBytes).catch(() => false);
       if (stored) await unlink(stored).catch(() => {});
       if (oversized) throw failure('The processed recording exceeds the audio storage limit. Shorten the recording and retry.', 413);
-      if (error.code === 'ENOENT') throw failure('Audio tools are unavailable. Ask the administrator to configure FFmpeg and ffprobe.', 503);
-      if (!error.status) throw failure('This audio could not be read. Choose a valid WAV, MP3, M4A, OGG, FLAC or WebM recording.');
-      throw error;
+      if (!error.status && !(error instanceof z.ZodError)) console.error('Audio upload failed:', JSON.stringify({ stage, code: error.code || null, exitCode: error.exitCode ?? null, signal: error.signal || null,
+        ...(stage === 'convert' || stage === 'probe' ? { detail: error.message.slice(-1200) } : {}) }));
+      throw audioUploadError(error, stage);
     } finally { await unlink(file.path).catch(() => {}); }
   }));
   app.get('/api/assets/:id/audio', asyncRoute(async (req, res) => {

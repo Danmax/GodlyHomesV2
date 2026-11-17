@@ -44,6 +44,15 @@ export async function testStudioTools({ createApp, rows, hashPassword, origin })
   const imported = await owner.post('/api/assets').set('Origin', origin).set('X-CSRF-Token', login.body.csrf).field('category', 'music').attach('audio', file);
   assert.equal(imported.status, 201, JSON.stringify(imported.body));
   assert.equal(imported.body.category, 'music');
+  // A valid recording must not be reported as corrupt when saving its metadata
+  // fails on an outdated deployment schema. This database is an isolated fixture.
+  await rows('ALTER TABLE assets RENAME COLUMN episode_id TO episode_id_unavailable');
+  try {
+    const unavailable = await owner.post('/api/assets').set('Origin', origin).set('X-CSRF-Token', login.body.csrf).attach('audio', file);
+    assert.equal(unavailable.status, 503, JSON.stringify(unavailable.body));
+    assert.match(unavailable.body.error, /database migrations/);
+    assert.doesNotMatch(unavailable.body.error, /audio could not be read/);
+  } finally { await rows('ALTER TABLE assets RENAME COLUMN episode_id_unavailable TO episode_id'); }
   const analysis = await post(`/assets/${id}/analyze`).send(body);
   assert.equal(analysis.status, 200, JSON.stringify(analysis.body));
   assert.equal(analysis.body.silences.length, 1);

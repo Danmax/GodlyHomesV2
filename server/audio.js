@@ -16,7 +16,7 @@ export function run(command, args, timeout = 30 * 60 * 1000) {
     child.stdout.on('data', data => { stdout = (stdout + data).slice(-100000); });
     child.stderr.on('data', data => { stderr = (stderr + data).slice(-100000); });
     child.on('error', error => { clearTimeout(timer); reject(error); });
-    child.on('close', code => { clearTimeout(timer); code === 0 ? resolve({ stdout, stderr }) : reject(new Error(`Audio process failed (${code}): ${stderr.slice(-1000)}`)); });
+    child.on('close', (code, signal) => { clearTimeout(timer); code === 0 ? resolve({ stdout, stderr }) : reject(Object.assign(new Error(`Audio process failed (${code}): ${stderr.slice(-1000)}`), { exitCode: code, signal })); });
   });
 }
 export async function probe(file) {
