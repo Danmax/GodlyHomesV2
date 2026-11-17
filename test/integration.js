@@ -374,11 +374,10 @@ try {
       page.once('dialog', dialog => dialog.dismiss());
       await page.getByRole('button', { name: 'Delete episode', exact: true }).click();
       await page.getByRole('heading', { name: 'Browser recorded episode', exact: true }).waitFor();
-      page.once('dialog', dialog => {
-        assert.match(dialog.message(), /Original audio files stay in your library/);
-        return dialog.accept();
-      });
+      let deletePrompt;
+      page.once('dialog', dialog => { deletePrompt = dialog.message(); return dialog.accept(); });
       await page.getByRole('button', { name: 'Delete episode', exact: true }).click();
+      assert.match(deletePrompt, /Original recordings are retained.*Clips saved to library folders remain available/);
       await page.getByRole('heading', { name: 'Your voice has a home.' }).waitFor();
       assert.equal(await page.locator('.episode-open').filter({ hasText: 'Browser recorded episode' }).count(), 0);
       await page.reload();

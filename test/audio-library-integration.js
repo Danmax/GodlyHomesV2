@@ -38,8 +38,9 @@ export async function testAudioLibraryMigration({ mysql, socket }) {
   } finally { await connection.query('DROP DATABASE IF EXISTS audio_library_migration_test'); await connection.end(); }
 }
 
-export async function testAudioLibrary({ app, agent, mutate, otherAgent, otherCsrf, otherId, origin, fixture, rows, claimJob, processJob }) {
+export async function testAudioLibrary({ app, agent, mutate, otherAgent, otherCsrf, origin, fixture, rows, claimJob, processJob }) {
   const path = '/api/audio-library', suffix = randomUUID().slice(0, 8);
+  const other = (method, url) => otherAgent[method](url).set('Origin', origin).set('X-CSRF-Token', otherCsrf);
   assert.equal((await request(app).get(path)).status, 401);
   const episode = (await mutate('post', '/api/episodes')).body, destination = (await mutate('post', '/api/episodes')).body;
   const upload = await mutate('post', '/api/assets').field('category', 'recording').field('episodeId', episode.id).attach('audio', fixture);
@@ -48,8 +49,9 @@ export async function testAudioLibrary({ app, agent, mutate, otherAgent, otherCs
   const allAssets = (await agent.get('/api/assets')).body;
   assert.ok(assetsForEpisode(allAssets, episode).some(asset => asset.id === source.id));
   assert.ok(!assetsForEpisode(allAssets, destination).some(asset => asset.id === source.id));
-  const [otherEpisode] = await rows('SELECT id FROM episodes WHERE user_id = ? LIMIT 1', [otherId]);
-  if (otherEpisode) assert.equal((await mutate('post', '/api/assets').field('episodeId', otherEpisode.id).attach('audio', fixture)).status, 404);
+  const otherEpisode = (await other('post', '/api/episodes')).body;
+  assert.equal((await mutate('post', '/api/assets').field('episodeId', otherEpisode.id).attach('audio', fixture)).status, 404);
+  assert.equal((await other('delete', `/api/episodes/${otherEpisode.id}`)).status, 200);
   const folderResponse = await mutate('post', `${path}/folders`).send({ name: `Intros ${suffix}` });
   assert.equal(folderResponse.status, 201); const folder = folderResponse.body;
   assert.equal((await mutate('post', `${path}/folders`).send({ name: folder.name })).status, 409);
@@ -62,7 +64,6 @@ export async function testAudioLibrary({ app, agent, mutate, otherAgent, otherCs
   assert.deepEqual([saved.start, saved.end, saved.gain, saved.fadeIn, saved.fadeOut, saved.role], [.25, 1.75, .65, .1, .2, 'intro']);
   assert.equal(saved.asset.episodeId, episode.id); assert.equal(library.folders.find(item => item.id === folder.id).count, 1);
   assert.ok(!(await otherAgent.get(path)).body.clips.some(clip => clip.id === savedId));
-  const other = (method, url) => otherAgent[method](url).set('Origin', origin).set('X-CSRF-Token', otherCsrf);
   assert.equal((await other('post', `${path}/clips`).send(libraryClipData(original, folder.id))).status, 404);
   assert.equal((await other('patch', `${path}/clips/${savedId}`).send({ name: 'Wrong owner' })).status, 404);
   assert.equal((await other('delete', `${path}/clips/${savedId}`)).status, 404);

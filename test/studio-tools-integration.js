@@ -52,8 +52,13 @@ export async function testStudioTools({ createApp, rows, hashPassword, origin })
   assert.ok(Math.abs(offset.body.silences[0].start - 2) < .1, 'Analysis returns original-source timestamps after seeking');
   assert.equal((await post(`/assets/${id}/analyze`).send({ ...body, end: 99 })).status, 400);
   assert.equal((await post('/intro/script').send({ show: 'Our Show', host: 'Sam', topic: 'family rhythms', tone: 'warm' })).status, 200);
-  const voice = await post('/intro/voice').send({ script: 'Welcome to our show.', voice: 'marin' });
+  const introEpisode = (await owner.post('/api/episodes').set('Origin', origin).set('X-CSRF-Token', login.body.csrf)).body;
+  const voice = await post('/intro/voice').send({ script: 'Welcome to our show.', voice: 'marin', episodeId: introEpisode.id });
   assert.equal(voice.status, 201, JSON.stringify(voice.body));
+  assert.equal(voice.body.episodeId, introEpisode.id);
+  const calls = generated.length;
+  assert.equal((await stranger.post('/api/studio-tools/intro/voice').set('Origin', origin).set('X-CSRF-Token', otherLogin.body.csrf).send({ script: 'Other episode', voice: 'marin', episodeId: introEpisode.id })).status, 404);
+  assert.equal(generated.length, calls, 'Episode ownership is checked before generating audio');
   assert.match(generated.at(-1).text, /^This introduction uses an AI-generated voice/);
   assert.ok(generated.every(input => /^[a-f0-9]{64}$/.test(input.userId)), 'Provider receives hashed user identifiers');
   assert.equal((await owner.get(voice.body.url)).status, 200);

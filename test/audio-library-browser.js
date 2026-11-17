@@ -48,7 +48,7 @@ export async function testAudioLibraryBrowser(browser, origin) {
     await page.getByLabel('Trim start (seconds)', { exact: true }).fill('1.25'); await page.getByLabel('Trim end (seconds)', { exact: true }).fill('4.75');
     await page.getByLabel('Episode section', { exact: true }).selectOption('intro');
     await page.getByLabel('Fade in (seconds)', { exact: true }).fill('0.2'); await page.getByLabel('Fade out (seconds)', { exact: true }).fill('0.3');
-    await page.locator('.clip-editor input[type=range]').last().fill('0.4');
+    const gain = page.locator('.clip-editor input[type=range]').last(); await gain.press('Home'); for (let i = 0; i < 8; i++) await gain.press('ArrowRight');
     await page.getByLabel('Timeline start (seconds)', { exact: true }).fill('15'); await saved();
     const firstArrangement = structuredClone(episodes[0].arrangement);
     await page.getByLabel('New library folder', { exact: true }).fill('Intros'); await page.getByRole('button', { name: 'Create folder', exact: true }).click(); await status('Folder created');
@@ -68,7 +68,11 @@ export async function testAudioLibraryBrowser(browser, origin) {
     assert.deepEqual(await page.getByLabel('Episode recordings', { exact: true }).locator('option').allTextContents(), ['Choose a recording or music track', 'Second episode recording'], 'Using a saved edit keeps its full source recording with its original episode');
     await page.getByLabel('Timeline zoom', { exact: true }).selectOption('32'); await page.locator('.timeline-editor').scrollIntoViewIfNeeded();
     await page.locator('.timeline-source').filter({ hasText: 'Reusable welcome' }).dragTo(page.locator('[data-track="narration"]'), { targetPosition: { x: 64, y: 35 } }); await saved();
-    copies = episodes[1].arrangement.segments.filter(clip => clip.assetId === assets[0].id); assert.equal(copies.length, 2); assert.equal(copies[1].position, 2); assert.equal(copies[1].trackId, 'narration');
+    copies = episodes[1].arrangement.segments.filter(clip => clip.assetId === assets[0].id); assert.equal(copies.length, 2); assert.equal(copies.find(clip => clip.trackId === 'narration').position, 2); assert.equal(new Set(copies.map(clip => clip.id)).size, 2);
+    await page.getByRole('button', { name: 'Add saved clip to episode', exact: true }).click(); await saved();
+    assert.equal(episodes[1].arrangement.segments.filter(clip => clip.assetId === assets[0].id).length, 3);
+    await page.getByRole('button', { name: 'Undo', exact: true }).click(); await saved();
+    await page.locator('[data-track="narration"] .timeline-clip').click();
     await page.getByLabel('Trim start (seconds)', { exact: true }).fill('2'); await page.getByLabel('Clip name', { exact: true }).fill('This episode only'); await saved();
     assert.equal(clips[0].start, 1.25); assert.equal(clips[0].name, 'Reusable welcome'); assert.deepEqual(episodes[0].arrangement, firstArrangement);
     await page.getByLabel('New library folder', { exact: true }).fill('Favorites'); await page.getByRole('button', { name: 'Create folder', exact: true }).click(); await status('Folder created');
