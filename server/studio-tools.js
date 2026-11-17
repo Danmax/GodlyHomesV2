@@ -10,6 +10,7 @@ import { run, probe, canonicalInputOptions } from './audio.js';
 import { requireMediaFile } from './media.js';
 import { guardedUpload, withMediaTransferBudget } from './upload-budget.js';
 import { generateIntro, introVoices, voiceDisclosure } from './studio-ai.js';
+import { mapAudioAsset } from './audio-library.js';
 
 const route = fn => (req, res, next) => Promise.resolve(fn(req, res)).catch(next);
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
@@ -38,7 +39,7 @@ export function studioTools({ generate = generateIntro } = {}) {
     if (!asset) throw fail('Audio source not found.', 404);
     const name = input.name ?? asset.filename, category = input.category ?? asset.category;
     await rows('UPDATE assets SET filename = ?, category = ? WHERE id = ? AND user_id = ?', [name, category, id, req.user.id]);
-    res.json({ id, name, category, duration: asset.duration, bytes: Number(asset.bytes), url: `/api/assets/${id}/audio` });
+    res.json(mapAudioAsset({ ...asset, filename: name, category }));
   }));
   router.post('/assets/:id/analyze', limited(20), route(async (req, res) => {
     const id = z.uuid().parse(req.params.id);
@@ -59,7 +60,11 @@ export function studioTools({ generate = generateIntro } = {}) {
     res.json({ script });
   }));
   router.post('/intro/voice', limited(5), guardedUpload('audio', (_req, _res, next) => next(), async req => {
-    const input = z.object({ script: z.string().trim().min(1).max(1200), voice: z.enum(introVoices) }).parse(req.body);
+    const input = z.object({ script: z.string().trim().min(1).max(1200), voice: z.enum(introVoices), episodeId: z.uuid().nullable().default(null) }).parse(req.body);
+    if (input.episodeId) {
+      const [episode] = await rows('SELECT id FROM episodes WHERE id = ? AND user_id = ?', [input.episodeId, req.user.id]);
+      if (!episode) throw fail('Episode not found.', 404);
+    }
     const id = randomUUID(), raw = path.join(config.mediaDir, 'uploads', `${id}.pcm`), key = `uploads/${id}.flac`, output = path.join(config.mediaDir, key);
     let saved = false;
     try {
@@ -69,9 +74,9 @@ export function studioTools({ generate = generateIntro } = {}) {
       const duration = await probe(output), { size } = await stat(output);
       if (duration > 130 || size > config.maxProcessedBytes) throw fail('The generated intro is too long. Shorten the script and try again.');
       const name = `AI intro — ${input.voice}`;
-      await rows('INSERT INTO assets (id, user_id, filename, storage_key, mime, bytes, duration) VALUES (?, ?, ?, ?, ?, ?, ?)', [id, req.user.id, name, key, 'audio/flac', size, duration]);
+      await rows('INSERT INTO assets (id, user_id, filename, storage_key, mime, bytes, duration, episode_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [id, req.user.id, name, key, 'audio/flac', size, duration, input.episodeId]);
       saved = true;
-      return { id, name, duration, bytes: size, url: `/api/assets/${id}/audio` };
+      return { id, name, category: 'recording', episodeId: input.episodeId, duration, bytes: size, url: `/api/assets/${id}/audio` };
     } finally { await unlink(raw).catch(() => {}); if (!saved) await unlink(output).catch(() => {}); }
   }));
   return router;

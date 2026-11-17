@@ -75,7 +75,7 @@ export default function Recorder({ userId, episodeId, onAsset, onBusy, onRecover
         try {
           setBackup('Uploading your take…');
           const extension = rec.mimeType.includes('mp4') ? 'm4a' : rec.mimeType.includes('ogg') ? 'ogg' : 'webm';
-          const asset = await uploadAudio(blob, `Take ${new Date(session.createdAt).toISOString().replace(/[:.]/g, '-')}.${extension}`);
+          const asset = await uploadAudio(blob, `Take ${new Date(session.createdAt).toISOString().replace(/[:.]/g, '-')}.${extension}`, 'recording', episodeId);
           await createRecovery({ ...session, assetId: asset.id });
           await onAsset(asset); // Keep recovery until both upload and arrangement are saved.
           await removeRecovery(session.id); setBackup('Take saved to your episode.'); setRescue(null);

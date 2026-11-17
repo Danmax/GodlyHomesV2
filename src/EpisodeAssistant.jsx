@@ -23,12 +23,12 @@ export default function EpisodeAssistant({ draft, onMix, onSaveScript, onGenerat
       <label>Generated voice<select className="field" value={voice} onChange={e => setVoice(e.target.value)}>{['marin', 'cedar', 'coral', 'sage'].map(name => <option key={name} value={name}>{name[0].toUpperCase() + name.slice(1)}</option>)}</select></label>
       <p className="small muted">Generated audio uses an AI voice. A spoken AI disclosure is included before your script. Listen before adding it to your episode.</p>
       <button className="btn accent" disabled={!options?.introEnabled || !script.trim()} onClick={() => perform(async () => {
-        const asset = await api('/api/studio-tools/intro/voice', { method: 'POST', body: { script, voice } });
+        const asset = await api('/api/studio-tools/intro/voice', { method: 'POST', body: { script, voice, episodeId: draft.id } });
         await onGenerated(asset); setGenerated({ ...asset, script, voice }); setAdded(false);
       })}>{busy ? 'Generating…' : 'Generate voice preview'}</button>
     </fieldset>
     {options && !options.introEnabled && <p className="message" role="status">AI scripts and voices need the voice service to be enabled by your administrator. You can build a starter script, record it yourself, or upload an intro now.</p>}
-    {generated && <div className="fields"><p className="small muted">Saved to your library: {generated.name}. This preview uses the script as it was when generated.</p><audio controls src={generated.url} aria-label="Generated intro preview" /><button className="btn primary" disabled={disabled || busy || added} onClick={() => perform(async () => { await onAdd(generated, 'intro'); setAdded(true); })}>{added ? 'Intro added to episode' : 'Add this intro to episode'}</button></div>}
+    {generated && <div className="fields"><p className="small muted">Saved with this episode: {generated.name}. This preview uses the script as it was when generated. Add it to the timeline, then save it to a library folder to reuse it.</p><audio controls src={generated.url} aria-label="Generated intro preview" /><button className="btn primary" disabled={disabled || busy || added} onClick={() => perform(async () => { await onAdd(generated, 'intro'); setAdded(true); })}>{added ? 'Intro added to episode' : 'Add this intro to episode'}</button></div>}
     </details>{error && <p className="message error" role="alert">{error}</p>}{message && <p className="message" role="status">{message}</p>}
   </section>;
 }
