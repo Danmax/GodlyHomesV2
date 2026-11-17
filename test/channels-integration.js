@@ -131,7 +131,7 @@ export async function testChannels({ createApp, rows, origin, fixture, claimJob,
       const errors = []; page.on('pageerror', error => errors.push(error.message));
       await page.goto(`${url}/studio`);
       await page.getByLabel('Email', { exact: true }).fill(alice.email); await page.getByLabel('Password', { exact: true }).fill(password);
-      await page.getByRole('button', { name: 'Sign in to your studio' }).click();
+      await page.getByRole('button', { name: 'Sign in', exact: true }).click();
       assert.equal(await page.getByRole('button', { name: 'Website Admin', exact: true }).count(), 0);
       await page.getByRole('button', { name: 'My channel', exact: true }).click();
       await page.getByLabel('Channel title', { exact: true }).fill('Alice’s Updated Channel');

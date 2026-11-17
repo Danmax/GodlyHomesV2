@@ -347,6 +347,7 @@ try {
       assert.equal((await rows('SELECT COUNT(*) AS count FROM assets WHERE user_id = ?', [userId]))[0].count, assetsBeforeRecovery);
       await page.getByRole('tab', { name: '2. Arrange & edit' }).click();
       await page.locator('.timeline-clip').first().click();
+      await page.getByText('Precise range cut', { exact: true }).click();
       await page.getByLabel('Cut from (seconds)').fill('0.3');
       await page.getByLabel('Cut to (seconds)').fill('0.6');
       await page.getByRole('button', { name: 'Cut selected range', exact: true }).click();

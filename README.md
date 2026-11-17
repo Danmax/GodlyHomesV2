@@ -203,6 +203,8 @@ The integration script initializes a **new temporary MySQL instance with network
 
 The optional browser pass uses installed Chrome at `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome` (override with `CHROME_PATH`) and fake microphone input. It exercises recording/upload/autosave/render/review/publish, reload persistence and mobile overflow, with screenshots in ignored `test-results/`. Build before running it.
 
+Timeline checks include real FFmpeg frequency measurements for overlapping voice/music, gaps, gains, mute/solo, and ducking; MySQL/API round trips and real worker exports; and browser pointer dragging, edge trims, playhead splits, duplication, Undo/Redo, library/file drops, live playback, keyboard movement, all production roles, reload persistence, and 320/390/768/1440px layouts. The focused browser check can be run with `node test/timeline-browser.js` after building; it also runs in `npm run test:pages`.
+
 `npm run test:pages` uses the same Chrome executable and a temporary production server to check public routes, navigation, page titles, and external Reflexion link/search behavior. Its populated layout audit covers all public route types, every admin section, content editors, the studio workflow, and channel/series editors at 320/390/768/1024/1440 pixels. It checks long-title overflow, 16px phone fields, 44px phone buttons, and navigation on a short landscape screen. It uses isolated API fixtures and does not connect to a database. Run the build first. See [the mobile review](docs/mobile-review-2026-11-11.md) for findings and verification limits.
 
 ## Hostinger VPS deployment
