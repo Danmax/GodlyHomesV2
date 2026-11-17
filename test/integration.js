@@ -65,7 +65,9 @@ try {
   assert.equal(login.status, 200);
   assert.ok(login.headers['set-cookie'][0].includes('HttpOnly'));
   let csrf = login.body.csrf;
-  const mutate = (method, url) => agent[method](url).set('Origin', origin).set('X-CSRF-Token', csrf);
+  const mutate = (method, url) => agent[method](url).set('Origin', origin).set('X-CSRF-Token', csrf).on('error', error => {
+    if (error.code === 'ECONNRESET') error.stack += `\nIntegration request: ${method.toUpperCase()} ${url}`;
+  });
   assert.equal((await agent.post('/api/episodes').set('Origin', origin)).status, 403);
   const created = await mutate('post', '/api/episodes');
   assert.equal(created.status, 201);
